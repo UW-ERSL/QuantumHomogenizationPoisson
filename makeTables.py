@@ -74,8 +74,13 @@ def tab_kappa() -> None:
             ratios.append(kK / prev)
             assert 3.5 < kK / prev < 4.0, (N, kK / prev)            # "approaching 4 per doubling"
         prev = kK
-        rows.append([f"${N}$", kappa_fmt(kK), f"${kM:.3f}$"])
-    write("kappa", "rrr", ["$N$", "$\\kappa(\\Kchi)$", "$\\kappa(\\tilde{\\mat{M}})$"], rows)
+        # separately encoded preconditioner P = (K^+)^{1/2}: best possible alpha_P^2 = ||K^+||,
+        # and P (K^chi / sigma_max) P = M, so kappa_P >= ||K^+|| * ALPHA * ||M^+|| = ||K^+|| ALPHA rho
+        Kplus = 1 / (2 * (1 - np.cos(2 * np.pi / N)))                # 1 / lambda_min^+(K), Eq. (app-lambda-min)
+        kP = Kplus * ALPHA * kM
+        assert kP >= kK, (N, kP, kK)                                 # "kappa_P >= kappa" (Eq. product-barrier)
+        rows.append([f"${N}$", kappa_fmt(kK), kappa_fmt(kP), f"${kM:.3f}$"])
+    write("kappa", "rrrr", ["$N$", "$\\kappa(\\Kchi)$", "$\\kappa_P$", "$\\kappa(\\tilde{\\mat{M}})$"], rows)
     print(f"       alpha = 16/3 = {ALPHA:.2f}; ratios per doubling: "
           + ", ".join(f"{x:.2f}" for x in ratios))
 
