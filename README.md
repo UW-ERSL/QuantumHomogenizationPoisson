@@ -47,6 +47,7 @@ print(checks, err, circ.resources()["toffoli_total"])
     python verify_full_unitary.py      # full-unitary error of U_V, about 6 minutes
     python verify_qsvt_degree.py       # QSVT degree and sup norm, a few seconds
     python verify_inverse.py           # preconditioned inverse on four sources, about 1 minute
+    python verify_readout.py           # Sec. 4: readout of the effective conductivity, about 3 minutes
     python makeTables.py               # Tables 1-3 of the paper as LaTeX in tables/
 
 ## Layout
@@ -61,6 +62,7 @@ print(checks, err, circ.resources()["toffoli_total"])
 | `verify_square.py` | Condition numbers of `K^chi` and of the preconditioned operator, and the encoding of `M`, for a square inclusion |
 | `verify_full_unitary.py` | Full 16 x 16 error of the wavenumber-controlled stage against the exact-angle unitary (42 cases) |
 | `verify_inverse.py` | The preconditioned inverse applied to four heat sources, against the finite element solution in the energy norm, with FFT-PCG iteration counts |
+| `verify_readout.py` | Sec. 4: the quadratic form for the effective conductivity against the finite element cell solution; a statevector emulation of the readout circuit `Z_ab` on the gate-level `U_V`; amplitude estimation sampled from its exact output distribution, against the error and query count of Prop. readout-cost |
 | `verify_qsvt_degree.py` | Degree and sup norm of the odd QSVT inverse polynomial against the bounds of Sec. 3.5 (independent of the PDE) |
 | `makeTables.py` | Writes the `tabular` of each table in Sec. 4 to `tables/*.tex`, after asserting every claim the text makes about it |
 
@@ -109,6 +111,25 @@ wire returns to zero.
   attains the residual 8.69e-7 of the polynomial; the gate-level block changes
   the errors by at most 1.2e-7 (F = 24) and 2.8e-9 (F = 32). FFT-PCG reaches
   the same error in 9 to 10 iterations, against d = 145 QSVT queries.
+- Effective conductivity (Sec. 4), square inclusion, `v_f = 1/4`:
+  `sigma^H / sigma_max = sbar - psi^T Mtilde^{-1} psi`, `psi = V^T Sigmatilde ehat`,
+  agrees with the finite element cell solution to 1.6e-10 (relative) for
+  `N` = 8 ... 64 and `rho` = 1.5 ... 1e4; `V^T ehat = 0` to 8.3e-17; the
+  polynomial changes the correction term by at most 0.40 eps_p of it;
+  `sigma^V / sigma^H` = 2.10 (`rho` = 10) and 1442 (`rho` = 1e4) at N = 64.
+- Readout circuit `Z_ab = (U_psi,a)^dag U_q U_psi,b`, emulated on the
+  statevector with `U_V` from the gates (N = 4, 8; F = 24, 32), flag qubits on
+  the local register, separate `U_Sigma` ancillas, and `U_q` a unitary with
+  block `q_t(Mtilde_c)/C` and a random unitary elsewhere: the all-zero
+  amplitude equals the product of the blocks to 1.7e-17 and the exact value
+  to 1.4e-10 (F = 24); with one shared ancilla and no flags it is wrong
+  (1.78e-2 against 9.43e-3 at N = 4).
+- Amplitude estimation on the Hadamard test (sampled exactly, 2000 runs,
+  seed 1), rho = 10: with eps_p = eps/3, F from `6 N 2^-F`, and
+  `M = ceil(9 pi C / (eps sbar))`, the error in `sigma^H / sigma_max` is at
+  most `eps sbar` in 96.7% to 100% of runs and in every median of 5 runs;
+  at eps = 1e-2: d = 63, C = 12.08, M = 105,113, (2M - 1) d = 1.32e7 queries
+  to `U_M`.
 - QSVT inverse polynomial (odd, Gribling et al. Cor. 12): degree
   `d <= rho ln(2/eps_p) + 1`; sup norm 1.30 rho (eps_p = 1e-3) and
   1.76 rho (eps_p = 1e-6).
@@ -129,8 +150,11 @@ delta = 1e-6: F = 33, 50,430 Toffolis (circuit count), 3,370 qubits.
    uncomputation; pebbling is not applied.
 3. **Error constant:** `delta <= 6 N 2^-F` is measured in every case tested;
    the paper proves `delta <= C N 2^-F` with an unspecified absolute constant.
-4. **Readout:** how the preconditioned inverse is read out is outside this
-   package.
+4. **QSVT phases:** `U_q` in the readout emulation is a unitary with the
+   block `q_t(Mtilde)/C` of Prop. qsvt-inverse; the QSVT phase factors are
+   not computed.
+5. **Readout of the full field:** only the effective conductivity is read
+   out; the temperature field is not.
 
 ## Conventions
 
