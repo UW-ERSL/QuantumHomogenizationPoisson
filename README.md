@@ -68,12 +68,15 @@ print(checks, err, circ.resources()["toffoli_total"])
     python verify_readout.py           # Secs. 4 and 5: readout of the effective conductivity, about 2 minutes
     python verify_qiskit_qsvt.py       # Sec. 5: the readout as one Qiskit circuit with QSVT phases, about 20 seconds
     python makeTables.py               # Tables 2-4 (tab:kappa, tab:be-M, tab:inverse) to tables/, about 6 minutes
-    python makeFigures.py              # all figures to figs/, about 2 minutes
+    python makeFigures.py              # all figures to figs/, about 6 minutes
     python makeFigures.py circuits     # only the two circuit figures, seconds
+    python makeFigures.py isometry     # encoding error and Toffoli count of U_V, about 4 minutes
+    python makeFigures.py conductivity # sigma^H against the contrast, seconds
 
 `tables/` and `figs/` are generated, not committed. The paper uses
-`figs/spectrum.pdf` (fig:spectrum), `figs/readout_circuit.pdf` (fig:readout)
-and `figs/qsvt_circuit.pdf` (fig:qsvt); `makeFigures.py` also writes
+`figs/spectrum.pdf` (fig:spectrum), `figs/readout_circuit.pdf` (fig:readout),
+`figs/qsvt_circuit.pdf` (fig:qsvt), `figs/isometry_cost.pdf`
+(fig:isometry-cost) and `figs/conductivity.pdf` (fig:conductivity); `makeFigures.py` also writes
 `figs/qsvt_poly.pdf` and `figs/angles.pdf`, which the current paper does not
 use. The circuit figures are drawn from the circuits that `readout()` and
 `u_q()` of `verify_qiskit_qsvt.py` build, with `U_V`, `U_M`, `U_q` and
@@ -96,7 +99,7 @@ use. The circuit figures are drawn from the circuits that `readout()` and
 | `verify_readout.py` | The quadratic form for the effective conductivity (Eq. sigmaH-pre) against the finite element cell solution; a statevector emulation of the readout circuit (Fig. readout) on the gate-level `U_V`; amplitude estimation sampled from its exact output distribution, against Eqs. readout-error and readout-queries |
 | `verify_qiskit_qsvt.py` | The readout circuit built entirely in Qiskit at N = 4, rho = 3: `U_V` (QFT, multiplexed `Q(k)`), `U_Sigma`, `U_M`, the QSVT sequence with pyqsp phases for `q_t`, flags; blocks checked against `Mtilde` and `q_t(Mtilde)/alpha_q`, and the all-zero probability sampled in Aer |
 | `makeTables.py` | Writes the `tabular` of each table of Sec. 5 to `tables/*.tex`, after asserting every claim the text makes about it |
-| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2 and the readout and QSVT circuit figures of Secs. 4.2 and 3.6 to `figs/`, after asserting every number the text quotes about them (15 qubits, d queries to `U_M`) |
+| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2, the readout and QSVT circuit figures of Secs. 4.2 and 3.6, and the isometry-cost and conductivity figures of Sec. 5 to `figs/`, after asserting every number the text quotes about them (15 qubits; d queries to `U_M`; `delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.54%; 50,430 Toffolis and 3,370 qubits at N = 1024, F = 33; `sigma^V / sigma^H` = 2.10 and 1442) |
 
 The scripts write `alpha_q`, the subnormalization of the QSVT polynomial, as
 `C`. `verify_readout.py` emulates the readout for both macroscopic gradients

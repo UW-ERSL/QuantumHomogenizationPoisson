@@ -1,10 +1,13 @@
 """makeFigures.py -- the figures of the paper, written to figs/ as PDF.
 
-    python makeFigures.py              # all figures, about 2 minutes (N = 64 is dense)
+    python makeFigures.py              # all figures, about 6 minutes
     python makeFigures.py circuits     # only the two circuit figures, seconds
+    python makeFigures.py isometry conductivity   # only the Sec. 5 figures, about 4 minutes
 
 figs/readout_circuit.pdf (fig:readout)  the readout circuit of verify_qiskit_qsvt.py, N = 4
 figs/qsvt_circuit.pdf    (fig:qsvt)     the QSVT sequence U_q of verify_qiskit_qsvt.py, d = 3
+figs/isometry_cost.pdf   (fig:isometry-cost) delta 2^F / N for the 42 cases and the Toffoli count against Eq. (toffoli)
+figs/conductivity.pdf    (fig:conductivity)  sigma^H, Reuss and Voigt against rho, N = 64; sigma^V / sigma^H
 figs/spectrum.pdf   (fig:spectrum)   eigenvalues of K^chi and of M, square inclusion, rho = 10
 figs/qsvt_poly.pdf  (fig:qsvt-poly)  the odd QSVT polynomial q_t, rho = 10, eps_p = 1e-3
 figs/angles.pdf     (fig:angles)     omega(k) and the hourglass fraction sin^2 tau(k), N = 32
@@ -156,41 +159,143 @@ def compile_circuit(body, name):
     print(f"figs/{name}.pdf")
 
 
-m = vq.m
-UV = Box(m + 4, r"\mathcal{U}_V", r"\mathcal{U}_V^{\dagger}")
-UM = Box(m + 5, r"\mathcal{U}_M", r"\mathcal{U}_M^{\dagger}")
-Uq = Box(m + 7, r"\mathcal{U}_q")
-th = Parameter("theta")
+def draw_circuits():
+    """figs/readout_circuit.pdf and figs/qsvt_circuit.pdf from verify_qiskit_qsvt.py."""
+    from qiskit import QuantumCircuit
+    m = vq.m
+    UV = Box(m + 4, r"\mathcal{U}_V", r"\mathcal{U}_V^{\dagger}")
+    UM = Box(m + 5, r"\mathcal{U}_M", r"\mathcal{U}_M^{\dagger}")
+    Uq = Box(m + 7, r"\mathcal{U}_q")
+    th = Parameter("theta")
 
-# U_Sigma: Ry(theta) on its ancilla, -R_chi controlled by it, Ry(-theta)
-ref = vq.u_sigma(np.ones(vq.N * vq.N), vq.RHO)
-assert [d.operation.name for d in ref.data] == ["ry", "diagonal", "ry"]
-assert all(ref.find_bit(ref.data[j].qubits[0]).index == m for j in (0, 2))
-from qiskit import QuantumCircuit
-US = QuantumCircuit(m + 1, name="U_Sigma")
-US.ry(th, m)
-US.append(CBox(m, r"-R_{\chi}"), [m] + list(range(m)))
-US.ry(-th, m)
+    # U_Sigma: Ry(theta) on its ancilla, -R_chi controlled by it, Ry(-theta)
+    ref = vq.u_sigma(np.ones(vq.N * vq.N), vq.RHO)
+    assert [d.operation.name for d in ref.data] == ["ry", "diagonal", "ry"]
+    assert all(ref.find_bit(ref.data[j].qubits[0]).index == m for j in (0, 2))
+    US = QuantumCircuit(m + 1, name="U_Sigma")
+    US.ry(th, m)
+    US.append(CBox(m, r"-R_{\chi}"), [m] + list(range(m)))
+    US.ry(-th, m)
 
-# readout: pos (m), loc (4), qa, z, c, s1, s2, f1, f2 of verify_qiskit_qsvt.py,
-# labeled s_0, z_1, z_2, s_1, s_2, f_1, f_2 in the paper
-R = vq.readout(UV, US, Uq).decompose(gates_to_decompose=["U_Sigma", "U_Sigma_dg"])
-assert R.num_qubits == 15                                                  # "15 qubits"
-rows = [0] * m + list(range(1, 12))
-labels = [r"position", r"local $\ell_0$", r"$\ell_1$", r"$\ell_2$", r"$\ell_3$",
-          r"$s_0$", r"$z_1$", r"$z_2$", r"$s_1$", r"$s_2$", r"$f_1$", r"$f_2$"]
-compile_circuit(quantikz(R, rows, labels, [m] + [1] * 11, meters=True), "readout_circuit")
+    # readout: pos (m), loc (4), qa, z, c, s1, s2, f1, f2 of verify_qiskit_qsvt.py,
+    # labeled s_0, z_1, z_2, s_1, s_2, f_1, f_2 in the paper
+    R = vq.readout(UV, US, Uq).decompose(gates_to_decompose=["U_Sigma", "U_Sigma_dg"])
+    assert R.num_qubits == 15                                                  # "15 qubits"
+    rows = [0] * m + list(range(1, 12))
+    labels = [r"position", r"local $\ell_0$", r"$\ell_1$", r"$\ell_2$", r"$\ell_3$",
+              r"$s_0$", r"$z_1$", r"$z_2$", r"$s_1$", r"$s_2$", r"$f_1$", r"$f_2$"]
+    compile_circuit(quantikz(R, rows, labels, [m] + [1] * 11, meters=True), "readout_circuit")
 
-# U_q: d queries to U_M and U_M^dag between d + 1 projector phases
-for d in (3, 15):
-    Q = vq.u_q(UM, [Parameter(f"phi_{j}") for j in range(d + 1)])
-    assert sum(x.operation.name == "box" for x in Q.data) == d             # "d queries to U_M"
-Q = vq.u_q(UM, [Parameter(f"phi_{j}") for j in range(4)])
-rows = [0] * m + list(range(1, 8))
-labels = [r"position", r"local $\ell_0$", r"$\ell_1$", r"$\ell_2$", r"$\ell_3$",
-          r"$s_0$", r"$z_1$", r"$z_2$"]
-compile_circuit(quantikz(Q, rows, labels, [m] + [1] * 7, meters=False), "qsvt_circuit")
-if sys.argv[1:] == ["circuits"]:
+    # U_q: d queries to U_M and U_M^dag between d + 1 projector phases
+    for d in (3, 15):
+        Q = vq.u_q(UM, [Parameter(f"phi_{j}") for j in range(d + 1)])
+        assert sum(x.operation.name == "box" for x in Q.data) == d             # "d queries to U_M"
+    Q = vq.u_q(UM, [Parameter(f"phi_{j}") for j in range(4)])
+    rows = [0] * m + list(range(1, 8))
+    labels = [r"position", r"local $\ell_0$", r"$\ell_1$", r"$\ell_2$", r"$\ell_3$",
+              r"$s_0$", r"$z_1$", r"$z_2$"]
+    compile_circuit(quantikz(Q, rows, labels, [m] + [1] * 7, meters=False), "qsvt_circuit")
+
+
+def draw_isometry():
+    """figs/isometry_cost.pdf: encoding error and Toffoli count of U_V (Sec. 5)."""
+    from verify_full_unitary import C_BOUND, full_error
+    from quantuminversionpoisson.isometry_circuit import IsometryCircuit
+    Fs = (12, 16, 20, 24, 28, 32)
+    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
+    worst, cases = 0.0, 0
+    shades = np.linspace(0.75, 0.0, 7)
+    for n, g in zip(range(2, 9), shades):
+        N = 2 ** n
+        c = []
+        for F in Fs:
+            blk, full, chk = full_error(n, F)
+            assert chk["work_bits_left_set"] == 0 and chk["inputs_restored"]     # "work register returns to zero"
+            c.append(full * 2.0 ** F / N)
+            cases += 1
+        worst = max(worst, max(c))
+        ax[0].plot(Fs, c, "-o", color=str(g), ms=3, lw=1.0, label=f"$N = {N}$")
+        print(f"isometry: N = {N}: max delta 2^F/N = {max(c):.2f}", flush=True)
+    assert cases == 42 and worst <= C_BOUND and round(worst, 2) == 5.73, worst   # "42 cases", "delta <= 6 N 2^-F"
+    ax[0].axhline(C_BOUND, color="0.4", lw=0.8, ls="--")
+    ax[0].text(12.3, C_BOUND * 1.04, r"$\delta = 6N\,2^{-F}$", fontsize=8)
+    ax[0].set_xlabel("fractional bits $F$"); ax[0].set_ylabel(r"$\delta\,2^{F}/N$")
+    ax[0].set_xticks(Fs); ax[0].set_ylim(0, 9.5)
+    ax[0].legend(loc="upper center", frameon=False, ncol=4, fontsize=6.5,
+                 columnspacing=0.8, handlelength=1.5, bbox_to_anchor=(0.5, 1.02))
+    ax[0].set_title("(a) encoding error of $\\mathcal{U}_V$", fontsize=9)
+
+    Fr = np.arange(12, 37)
+    dev, resid = 0.0, None
+    for n in range(2, 11):                                                         # N = 4 ... 1024
+        T = np.array([IsometryCircuit(n=n, F=F).resources()["toffoli_total"] for F in Fr])
+        fit = 41 * Fr ** 2 + 168 * Fr + 117 + 4 * n
+        dev = max(dev, np.max(np.abs(T - fit) / T))
+        if resid is None:
+            resid = T - fit
+        assert np.array_equal(T - fit, resid)              # N enters only through 4 log2 N
+    assert round(100 * dev, 2) == 0.54, dev                                        # "within 0.54 percent"
+    ax[1].plot(Fr, 100 * resid / (41 * Fr ** 2 + 168 * Fr + 117 + 4 * 10 + resid), "-o",
+               color="k", lw=1.0, ms=2.5)
+    r = IsometryCircuit(n=10, F=33).resources()
+    assert (r["toffoli_total"], r["wires"]) == (50430, 3370)                       # N = 1024, F = 33
+    ax[1].axhline(0, color="0.7", lw=0.6)
+    ax[1].set_xlabel("fractional bits $F$"); ax[1].set_ylabel("deviation from fit (%)")
+    ax[1].set_ylim(-0.7, 0.7)
+    ax[1].set_title("(b) Toffoli count against the quadratic fit", fontsize=9)
+    fig.tight_layout(); fig.savefig("figs/isometry_cost.pdf")
+    print(f"figs/isometry_cost.pdf: worst delta 2^F/N = {worst:.2f}, worst fit deviation {100 * dev:.2f}%")
+
+
+def draw_conductivity():
+    """figs/conductivity.pdf: sigma^H against the contrast, with the Reuss and Voigt bounds (Sec. 4.3)."""
+    from verify_readout import fe_sigmaH
+    from verify_square import assemble, square_chi
+    N = 64
+    A = assemble(N).tocsr()
+    chi = square_chi(N)
+    vf = chi.mean()
+    assert vf == 0.25
+    rhos = np.unique(np.concatenate([np.logspace(0, 4, 33), [10.0, 1e4]]))
+    sH = []
+    for rho in rhos:
+        St = np.repeat(np.where(chi == 1, 1.0, 1 / rho), 8)
+        S = fe_sigmaH(N, A, St)
+        assert abs(S[0, 1]) < 1e-12 and abs(S[0, 0] - S[1, 1]) < 1e-12 * S[0, 0]   # isotropic
+        sH.append(rho * S[0, 0])                                                   # in units of sigma_min
+    sH = np.array(sH)
+    voigt = vf * rhos + 1 - vf
+    reuss = 1 / (vf / rhos + 1 - vf)
+    assert np.all(reuss <= sH * (1 + 1e-12)) and np.all(sH <= voigt * (1 + 1e-12))
+    ratio = voigt / sH
+    r10, r4 = ratio[rhos == 10.0][0], ratio[rhos == 1e4][0]
+    assert round(r10, 2) == 2.10 and round(r4, -1) == 1440, (r10, r4)               # Sec. 4.3
+    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
+    ax[0].loglog(rhos, voigt, "--", color="0.4", lw=1.0, label=r"Voigt $\sigma^{\mathrm{V}}$")
+    ax[0].loglog(rhos, sH, "-", color="k", lw=1.2, label=r"$\sigma^{H}$")
+    ax[0].loglog(rhos, reuss, ":", color="0.4", lw=1.2, label="Reuss")
+    ax[0].set_xlabel(r"contrast $\rho$"); ax[0].set_ylabel(r"conductivity$/\sigma_{\min}$")
+    ax[0].legend(loc="upper left", frameon=False)
+    ax[0].set_title(r"(a) effective conductivity", fontsize=9)
+    ax[1].loglog(rhos, ratio, "-", color="k", lw=1.2)
+    for rho, r in ((10.0, r10), (1e4, r4)):
+        ax[1].plot(rho, r, "o", color="k", ms=3)
+        ax[1].annotate(f"{r:.2f}" if r < 100 else f"{r:,.0f}", (rho, r), textcoords="offset points",
+                       xytext=(-36, -4) if rho > 100 else (4, -10), fontsize=8)
+    ax[1].set_xlabel(r"contrast $\rho$"); ax[1].set_ylabel(r"$\sigma^{\mathrm{V}}/\sigma^{H}$")
+    ax[1].set_title(r"(b) Voigt bound over $\sigma^{H}$", fontsize=9)
+    fig.tight_layout(); fig.savefig("figs/conductivity.pdf")
+    print(f"figs/conductivity.pdf: sigma^V/sigma^H = {r10:.3f} (rho = 10), {r4:.1f} (rho = 1e4), N = {N}")
+
+
+NEW_FIGURES = {"circuits": draw_circuits, "isometry": draw_isometry,
+               "conductivity": draw_conductivity}
+ONLY = sys.argv[1:]
+assert all(x in NEW_FIGURES for x in ONLY), f"choose from {list(NEW_FIGURES)}"
+for name, draw in NEW_FIGURES.items():
+    if not ONLY or name in ONLY:
+        draw()
+if ONLY:
     sys.exit()
 
 from verify_square import operators, circulant
