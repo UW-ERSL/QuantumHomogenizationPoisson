@@ -1,7 +1,9 @@
-# QuantumInversionPoisson -- reproduces every verification reported in the paper.
+# QuantumHomogenizationPoisson -- reproduces every verification reported in the paper.
 #   python -m pip install -r requirements.txt
 numpy>=1.26
 scipy>=1.11
+# makeFigures.py
+matplotlib>=3.7
 # Optional: the independent Qiskit Aer cross-check (verify_isometry.py --aer)
 qiskit>=1.0
 qiskit-aer>=0.15
