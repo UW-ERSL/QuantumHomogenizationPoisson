@@ -39,7 +39,6 @@ import time
 import numpy as np
 import scipy.sparse as sp
 from numpy.polynomial import Chebyshev
-from pyqsp.sym_qsp_opt import newton_solver
 from qiskit import QuantumCircuit, QuantumRegister, transpile
 from qiskit.circuit.library import QFTGate, DiagonalGate, UnitaryGate
 from qiskit.quantum_info import Operator, Statevector
@@ -69,6 +68,7 @@ def scaled_poly(rho, eps_p):
 
 def wx_phases(p):
     """Wx phases with Re <0|U|0> = p (SpectralCorrectionQSVT, QSVTSolvers.qsp_phases)."""
+    from pyqsp.sym_qsp_opt import newton_solver               # only the phases need pyqsp
     c = np.asarray(p.coef, float)
     with contextlib.redirect_stdout(io.StringIO()):
         _, _, _, seq = newton_solver(c[1::2], 1, crit=1e-14)

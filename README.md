@@ -68,11 +68,17 @@ print(checks, err, circ.resources()["toffoli_total"])
     python verify_readout.py           # Secs. 4 and 5: readout of the effective conductivity, about 2 minutes
     python verify_qiskit_qsvt.py       # Sec. 5: the readout as one Qiskit circuit with QSVT phases, about 20 seconds
     python makeTables.py               # Tables 2-4 (tab:kappa, tab:be-M, tab:inverse) to tables/, about 6 minutes
-    python makeFigures.py              # figs/spectrum.pdf (fig:spectrum), about 2 minutes
+    python makeFigures.py              # all figures to figs/, about 2 minutes
+    python makeFigures.py circuits     # only the two circuit figures, seconds
 
-`tables/` and `figs/` are generated, not committed. `makeFigures.py` also
-writes `figs/qsvt_poly.pdf` and `figs/angles.pdf`, which the current paper
-does not use. Table 1 of the paper (symbols) is not generated.
+`tables/` and `figs/` are generated, not committed. The paper uses
+`figs/spectrum.pdf` (fig:spectrum), `figs/readout_circuit.pdf` (fig:readout)
+and `figs/qsvt_circuit.pdf` (fig:qsvt); `makeFigures.py` also writes
+`figs/qsvt_poly.pdf` and `figs/angles.pdf`, which the current paper does not
+use. The circuit figures are drawn from the circuits that `readout()` and
+`u_q()` of `verify_qiskit_qsvt.py` build, with `U_V`, `U_M`, `U_q` and
+`-R_chi` as labeled blocks; they are written as quantikz
+(`figs/*_circuit.tex`) and need pdflatex with the quantikz package. Table 1 of the paper (symbols) is not generated.
 
 ## Layout
 
@@ -90,7 +96,7 @@ does not use. Table 1 of the paper (symbols) is not generated.
 | `verify_readout.py` | The quadratic form for the effective conductivity (Eq. sigmaH-pre) against the finite element cell solution; a statevector emulation of the readout circuit (Fig. readout) on the gate-level `U_V`; amplitude estimation sampled from its exact output distribution, against Eqs. readout-error and readout-queries |
 | `verify_qiskit_qsvt.py` | The readout circuit built entirely in Qiskit at N = 4, rho = 3: `U_V` (QFT, multiplexed `Q(k)`), `U_Sigma`, `U_M`, the QSVT sequence with pyqsp phases for `q_t`, flags; blocks checked against `Mtilde` and `q_t(Mtilde)/alpha_q`, and the all-zero probability sampled in Aer |
 | `makeTables.py` | Writes the `tabular` of each table of Sec. 5 to `tables/*.tex`, after asserting every claim the text makes about it |
-| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2 to `figs/`, after asserting every number the text quotes about it |
+| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2 and the readout and QSVT circuit figures of Secs. 4.2 and 3.6 to `figs/`, after asserting every number the text quotes about them (15 qubits, d queries to `U_M`) |
 
 The scripts write `alpha_q`, the subnormalization of the QSVT polynomial, as
 `C`. `verify_readout.py` emulates the readout for both macroscopic gradients
