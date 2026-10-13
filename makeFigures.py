@@ -4,6 +4,7 @@
 
 figs/spectrum.pdf   (fig:spectrum)   eigenvalues of K^chi and of M, square inclusion, rho = 10
 figs/qsvt_poly.pdf  (fig:qsvt-poly)  the odd QSVT polynomial q_t, rho = 10, eps_p = 1e-3
+figs/angles.pdf     (fig:angles)     omega(k) and the hourglass fraction sin^2 tau(k), N = 32
 
 Every number the text quotes about a figure is ASSERTED here.
 """
@@ -15,6 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from verify_square import operators, circulant
+from quantuminversionpoisson.isometry_circuit import exact_angles
 
 RHO = 10.0
 plt.rcParams.update({"font.size": 9, "legend.fontsize": 8, "xtick.labelsize": 8,
@@ -86,4 +88,30 @@ ax[1].text(0.115, eps * 1.6, r"$\epsilon_p = 10^{-3}$", fontsize=8)
 ax[1].set_xlim(1 / RHO, 1); ax[1].set_ylim(1e-7, 1e-2); ax[1].set_xlabel("$x$")
 ax[1].set_title(r"(b) $|x\,q_t(x) - 1|$ on $[1/\rho, 1]$", fontsize=9)
 fig.tight_layout(); fig.savefig("figs/qsvt_poly.pdf")
-print("figs/spectrum.pdf, figs/qsvt_poly.pdf")
+
+# ---- the two angles over the wavenumbers -------------------------------------
+N = 32
+om = np.full((N, N), np.nan); hg = np.full((N, N), np.nan)
+for k1 in range(N):
+    for k2 in range(N):
+        if (k1, k2) == (0, 0):
+            continue
+        o, t_ = exact_angles(N, k1, k2)
+        hg[k1, k2] = np.sin(t_) ** 2
+        if (k1, k2) != (N // 2, N // 2):
+            om[k1, k2] = np.degrees(o)
+assert np.nanmax(np.abs(hg[:, 0])) < 1e-14 and np.nanmax(np.abs(hg[0, :])) < 1e-14   # "k on an axis: no hourglass"
+assert abs(hg[N // 2, N // 2] - 1) < 1e-14                                           # "(N/2, N/2): pure hourglass"
+assert abs(hg[N // 4, N // 4] - 0.25) < 1e-14                                        # "(N/4, N/4): 1/4"
+fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.7))
+for a_, Z, ttl, lab in ((ax[0], om, r"(a) $\omega(\mathbf{k})$", "degrees"),
+                       (ax[1], hg, r"(b) $\sin^2\tau(\mathbf{k})$", "")):
+    im = a_.imshow(Z.T, origin="lower", cmap="viridis", extent=(-0.5, N - 0.5, -0.5, N - 0.5))
+    a_.set_xlabel("$k_1$"); a_.set_ylabel("$k_2$"); a_.set_title(ttl, fontsize=9)
+    a_.set_xticks([0, 8, 16, 24, 31]); a_.set_yticks([0, 8, 16, 24, 31])
+    cb = fig.colorbar(im, ax=a_, fraction=0.046, pad=0.04)
+    if lab:
+        cb.set_label(lab, fontsize=8)
+    cb.ax.tick_params(labelsize=8)
+fig.tight_layout(); fig.savefig("figs/angles.pdf")
+print("figs/spectrum.pdf, figs/qsvt_poly.pdf, figs/angles.pdf")
