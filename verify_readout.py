@@ -17,10 +17,13 @@ sigma_max = 1.
    input subspace is q_t(Mtilde_c)/C and whose action elsewhere is a random
    unitary. The QSVT phase sequence of U_q is not constructed; its block is
    Prop. qsvt-inverse. Also run with one shared ancilla and no flags.
-3. Readout cost (Prop. readout-cost). Amplitude estimation on the Hadamard
-   test of Z_aa, sampled from its exact output distribution (Brassard et
-   al., Thm. 12), with eps_p = eps/3, F chosen so that 6 N 2^-F meets the
-   encoding-error condition, and M = ceil(9 pi C / (eps sbar)).
+3. Readout cost (Sec. 4.3, eq:readout-error, eq:readout-queries). Amplitude
+   estimation on the all-zero probability Z_aa^2 of the readout circuit
+   (Z_aa >= 0, so no controlled copy), sampled from its exact output
+   distribution (Brassard et al., Thm. 12), with eps_p = eps/3, F chosen so
+   that 6 N 2^-F meets the encoding-error condition, and
+   M = ceil(3 pi C / (eps sbar)): with probability >= 8/pi^2 the angle error
+   is at most pi/M, hence |A_hat - A| <= pi/M and C |A_hat - A| <= eps sbar/3.
 """
 import json
 import time
@@ -271,16 +274,16 @@ def cost_case(N, rho, eps, runs=2000, seed=1):
     F = int(np.ceil(np.log2(DELTA_CONST * N * 6 * C * (d + 1) / (eps * sbar))))
     r = circuit_case(N, rho, F, eps_p)
     A = r["Z11"]
-    M = int(np.ceil(9 * np.pi * C / (eps * sbar)))
+    M = int(np.ceil(3 * np.pi * C / (eps * sbar)))
     rng = np.random.default_rng(seed)
-    Ahat = 2 * ae_samples((1 + A) / 2, M, runs, rng) - 1
+    Ahat = np.sqrt(ae_samples(A ** 2, M, runs, rng))           # A >= 0
     qf = qf_case(N, rho, eps_p)
     target = qf["sigmaH"]
     err = np.abs(sbar - C * Ahat - target)
     med = np.median(Ahat.reshape(-1, 5), axis=1)                # median of 5 runs
     err_med = np.abs(sbar - C * med - target)
     return dict(N=N, rho=rho, eps=eps, F=F, d=d, C=C, M=M, queries=(2 * M - 1) * d,
-                ae_bound_frac=float(np.mean(np.abs(Ahat - A) <= 2 * np.pi / M + 2 * np.pi ** 2 / M ** 2)),
+                ae_bound_frac=float(np.mean(np.abs(Ahat - A) <= np.pi / M)),
                 success_frac=float(np.mean(err <= eps * sbar)),
                 success_frac_median5=float(np.mean(err_med <= eps * sbar)),
                 max_err_over_bound=float(err.max() / (eps * sbar)),
@@ -310,7 +313,7 @@ def assert_claims(out):
     c = {(r["N"], r["eps"]): r for r in out["cost"]}
     r = c[8, 1e-2]
     assert (r["d"], round(r["C"], 2)) == (63, 12.08)            # worked numbers of Sec. 4.3
-    assert round(r["M"], -3) == 105000 and round(r["queries"], -5) == 13_200_000, r
+    assert r["M"] == 35038 and round(r["queries"], -5) == 4_400_000, r
     for r in out["cost"]:
         assert r["ae_bound_frac"] >= 8 / np.pi ** 2, r           # Brassard et al., Thm. 12
         assert r["success_frac"] >= 8 / np.pi ** 2, r            # Prop. readout-cost

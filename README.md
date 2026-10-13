@@ -137,11 +137,12 @@ wire returns to zero.
   amplitude equals the product of the blocks to 1.7e-17 and the exact value
   to 1.4e-10 (F = 24); with one shared ancilla and no flags it is wrong
   (1.78e-2 against 9.43e-3 at N = 4).
-- Amplitude estimation on the Hadamard test (sampled exactly, 2000 runs,
-  seed 1), rho = 10: with eps_p = eps/3, F from `6 N 2^-F`, and
-  `M = ceil(9 pi C / (eps sbar))`, the error in `sigma^H / sigma_max` is at
-  most `eps sbar` in 96.7% to 100% of runs and in every median of 5 runs;
-  at eps = 1e-2: d = 63, C = 12.08, M = 105,113, (2M - 1) d = 1.32e7 queries
+- Amplitude estimation on the all-zero probability `A^2` of the readout
+  circuit (`A >= 0`, no controlled copy; sampled exactly, 2000 runs, seed 1),
+  rho = 10: with eps_p = eps/3, F from `6 N 2^-F`, and
+  `M = ceil(3 pi C / (eps sbar))`, the error in `sigma^H / sigma_max` is at
+  most `eps sbar` in 94.5% to 99.4% of runs and in every median of 5 runs;
+  at eps = 1e-2: d = 63, C = 12.08, M = 35,038, (2M - 1) d = 4.41e6 queries
   to `U_M`.
 - QSVT inverse polynomial (odd, Gribling et al. Cor. 12): degree
   `d <= rho ln(2/eps_p) + 1`; sup norm 1.30 rho (eps_p = 1e-3) and
