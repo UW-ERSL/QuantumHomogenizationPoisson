@@ -5,3 +5,5 @@ scipy>=1.11
 # Optional: the independent Qiskit Aer cross-check (verify_isometry.py --aer)
 qiskit>=1.0
 qiskit-aer>=0.15
+# Optional: verify_qiskit_qsvt.py (QSP phases)
+pyqsp>=0.2

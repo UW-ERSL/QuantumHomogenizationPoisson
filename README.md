@@ -24,7 +24,8 @@ from the companion package [`pyblockencode`](https://github.com/UW-ERSL/PyBlockE
     pip install git+https://github.com/UW-ERSL/QuantumInversionPoisson
 
 or, from a clone, `pip install -r requirements.txt`. Only numpy and scipy are
-required; Qiskit and Qiskit Aer are needed only for the optional cross-check.
+required; Qiskit and Qiskit Aer are needed only for the optional cross-checks,
+and pyqsp only for `verify_qiskit_qsvt.py`.
 
 ## Quick start
 
@@ -48,6 +49,7 @@ print(checks, err, circ.resources()["toffoli_total"])
     python verify_qsvt_degree.py       # QSVT degree and sup norm, a few seconds
     python verify_inverse.py           # preconditioned inverse on four sources, about 1 minute
     python verify_readout.py           # Sec. 4: readout of the effective conductivity, about 3 minutes
+    python verify_qiskit_qsvt.py       # the readout as one Qiskit circuit with QSVT phases, about 20 seconds
     python makeTables.py               # Tables 1-3 of the paper as LaTeX in tables/
 
 ## Layout
@@ -63,6 +65,7 @@ print(checks, err, circ.resources()["toffoli_total"])
 | `verify_full_unitary.py` | Full 16 x 16 error of the wavenumber-controlled stage against the exact-angle unitary (42 cases) |
 | `verify_inverse.py` | The preconditioned inverse applied to four heat sources, against the finite element solution in the energy norm, with FFT-PCG iteration counts |
 | `verify_readout.py` | Sec. 4: the quadratic form for the effective conductivity against the finite element cell solution; a statevector emulation of the readout circuit `Z_ab` on the gate-level `U_V`; amplitude estimation sampled from its exact output distribution, against the error and query count of Prop. readout-cost |
+| `verify_qiskit_qsvt.py` | The readout circuit of Sec. 4 built entirely in Qiskit at N = 4, rho = 3: `U_V` (QFT, multiplexed `Q(k)`), `U_Sigma`, `U_M`, the QSVT sequence with pyqsp phases for `q_t`, flags; blocks checked against `Mtilde` and `q_t(Mtilde)/alpha_q`, and the all-zero probability sampled in Aer |
 | `verify_qsvt_degree.py` | Degree and sup norm of the odd QSVT inverse polynomial against the bounds of Sec. 3.5 (independent of the PDE) |
 | `makeTables.py` | Writes the `tabular` of each table in Sec. 4 to `tables/*.tex`, after asserting every claim the text makes about it |
 
@@ -99,6 +102,16 @@ wire returns to zero.
   element (N = 8, 16), to 1.1e-6 at F = 24.
 - The exported 594-qubit circuit in Qiskit Aer (MPS) for every `k` at N = 4,
   agreeing to 6.5e-10.
+- The readout of Sec. 4 as one 15-qubit Qiskit circuit (N = 4, rho = 3,
+  eps_p = 1e-2, d = 15, alpha_q = 3.373): block of `U_M` equals `Mtilde` to
+  1.7e-15; QSP phases (pyqsp symmetric-QSP Newton solver, mapped from the Wx
+  to the reflection convention) reproduce `q_t/alpha_q` on [-1, 1] to 3.1e-12;
+  block of the QSVT circuit equals `q_t(Mtilde)/alpha_q` to 2.5e-12; the
+  all-zero amplitude equals `psi^T q_t(Mtilde) psi / alpha_q` and gives
+  `sigma^H` = 0.434186 against the finite element 0.434028 (polynomial error
+  2.4e-3 < eps_p in the correction); 2e5 Aer shots give 0.4288 +- 0.0074.
+  `Q(k)` enters at exact angles; its arithmetic is checked by
+  `verify_isometry_aer.py`.
 - Square inclusion, `v_f = 1/4`, `N` = 8 ... 64, `rho` = 1.5 ... 1e4:
   `kappa(M) = rho` exactly (the bound is attained), while the condition number
   of `K^chi` seen by QSVT (`alpha = 16/3`) grows by 3.80, 3.96, 3.99 per
@@ -150,9 +163,10 @@ delta = 1e-6: F = 33, 50,430 Toffolis (circuit count), 3,370 qubits.
    uncomputation; pebbling is not applied.
 3. **Error constant:** `delta <= 6 N 2^-F` is measured in every case tested;
    the paper proves `delta <= C N 2^-F` with an unspecified absolute constant.
-4. **QSVT phases:** `U_q` in the readout emulation is a unitary with the
-   block `q_t(Mtilde)/C` of Prop. qsvt-inverse; the QSVT phase factors are
-   not computed.
+4. **QSVT phases at scale:** the phase factors are computed and run in
+   Qiskit only at N = 4, rho = 3 (d = 15), with `Q(k)` at exact angles; the
+   statevector emulation in `verify_readout.py` (N = 4, 8, rho = 10) uses a
+   unitary with the block `q_t(Mtilde)/alpha_q` in place of the phase sequence.
 5. **Readout of the full field:** only the effective conductivity is read
    out; the temperature field is not.
 
