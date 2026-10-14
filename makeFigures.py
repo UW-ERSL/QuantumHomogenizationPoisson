@@ -197,11 +197,12 @@ def draw_circuits():
 
 
 def draw_isometry():
-    """figs/isometry_cost.pdf: encoding error and Toffoli count of U_V (Sec. 5)."""
+    """figs/isometry_cost.pdf: encoding error of U_V (Sec. 3.4); checks the Toffoli fit of Sec. 5.5."""
     from verify_full_unitary import C_BOUND, full_error
     from quantuminversionpoisson.isometry_circuit import IsometryCircuit
     Fs = (12, 16, 20, 24, 28, 32)
-    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
+    fig, ax0 = plt.subplots(figsize=(3.6, 2.5))
+    ax = [ax0]
     worst, cases = 0.0, 0
     shades = np.linspace(0.75, 0.0, 7)
     for n, g in zip(range(2, 9), shades):
@@ -222,7 +223,6 @@ def draw_isometry():
     ax[0].set_xticks(Fs); ax[0].set_ylim(0, 9.5)
     ax[0].legend(loc="upper center", frameon=False, ncol=4, fontsize=6.5,
                  columnspacing=0.8, handlelength=1.5, bbox_to_anchor=(0.5, 1.02))
-    ax[0].set_title("(a) encoding error of $\\mathcal{U}_V$", fontsize=9)
 
     Fr = np.arange(12, 37)
     dev, resid = 0.0, None
@@ -234,14 +234,6 @@ def draw_isometry():
             resid = T - fit
         assert np.array_equal(T - fit, resid)              # N enters only through 4 log2 N
     assert round(100 * dev, 2) == 0.54, dev                                        # "within 0.54 percent"
-    ax[1].plot(Fr, 100 * resid / (41 * Fr ** 2 + 168 * Fr + 117 + 4 * 10 + resid), "-o",
-               color="k", lw=1.0, ms=2.5)
-    r = IsometryCircuit(n=10, F=33).resources()
-    assert (r["toffoli_total"], r["wires"]) == (50430, 3370)                       # N = 1024, F = 33
-    ax[1].axhline(0, color="0.7", lw=0.6)
-    ax[1].set_xlabel("fractional bits $F$"); ax[1].set_ylabel("deviation from fit (%)")
-    ax[1].set_ylim(-0.7, 0.7)
-    ax[1].set_title("(b) Toffoli count against the quadratic fit", fontsize=9)
     fig.tight_layout(); fig.savefig("figs/isometry_cost.pdf")
     print(f"figs/isometry_cost.pdf: worst delta 2^F/N = {worst:.2f}, worst fit deviation {100 * dev:.2f}%")
 
