@@ -16,6 +16,8 @@ class Circuit:
     def __init__(self):
         self.n = 0
         self.gates = []          # ('x', t) | ('cx', c, t) | ('ccx', c1, c2, t)
+                                 # | ('and', c1, c2, t): temporary AND onto t = 0 (Gidney)
+                                 # | ('andu', c1, c2, t): its measurement-based uncompute
         self.pool = []           # freed wires, known to be zero
         self.peak_live = 0
         self.live = 0
@@ -48,9 +50,19 @@ class Circuit:
     def ccx(self, a, b, t):
         self.gates.append(("ccx", a, b, t))
 
+    def and_(self, a, b, t):
+        self.gates.append(("and", a, b, t))
+
+    def andu(self, a, b, t):
+        self.gates.append(("andu", a, b, t))
+
     def counts(self, start=0, stop=None):
+        """Gate counts. In a sequence and its exact reverse, every temporary AND
+        is computed once and uncomputed once, in either order, so the
+        Toffoli-equivalent count of a compute-uncompute pair is
+        2 * ccx + (and + andu): one AND (4 T) per pair, uncompute free."""
         g = self.gates[start:stop]
-        return {k: sum(1 for q in g if q[0] == k) for k in ("x", "cx", "ccx")}
+        return {k: sum(1 for q in g if q[0] == k) for k in ("x", "cx", "ccx", "and", "andu")}
 
 
 # ==========================================================================
@@ -87,9 +99,17 @@ class BitSim:
         return v
 
     def run(self, gates):
+        """Apply gates. A temporary AND acts as a CCX onto a target that must be
+        0 when it is computed and must equal the AND when it is uncomputed (the
+        measurement-based uncompute leaves only a phase, fixed by a CZ); both
+        conditions are asserted for every input."""
         s = self.s
         for g in gates:
-            if g[0] == "ccx":
+            if g[0] in ("and", "andu"):
+                prod = s[g[1]] & s[g[2]]
+                assert np.all(s[g[3]] == (0 if g[0] == "and" else prod)), g
+                s[g[3]] ^= prod
+            elif g[0] == "ccx":
                 s[g[3]] ^= s[g[1]] & s[g[2]]
             elif g[0] == "cx":
                 s[g[2]] ^= s[g[1]]
@@ -142,6 +162,40 @@ def cuccaro(c, a, b, cin):
     uma(cin, b[0], a[0])
 
 
+ADDER = "cuccaro"     # or "gidney"
+
+
+def reverse(gates):
+    """Exact inverse of a gate list: reversed order, with each temporary AND
+    compute and uncompute exchanged."""
+    sw = {"and": "andu", "andu": "and"}
+    return [(sw[g[0]],) + g[1:] if g[0] in sw else g for g in gates[::-1]]
+
+
+def gidney(c, a, b, cin):
+    """b <- b + a + cin (mod 2^w), a and cin restored [Gidney 2018].
+
+    w - 1 temporary ANDs compute the carries; each is uncomputed by
+    measurement at no Toffoli cost. Toffoli-equivalent cost w - 1.
+    """
+    w = len(a)
+    car = [cin] + c.alloc(w - 1)               # car[i] = carry into bit i
+    for i in range(w - 1):
+        c.cx(car[i], a[i]); c.cx(car[i], b[i])
+        c.and_(a[i], b[i], car[i + 1])
+        c.cx(car[i], car[i + 1])                # car[i+1] = MAJ(a_i, b_i, car_i)
+    c.cx(a[w - 1], b[w - 1]); c.cx(car[w - 1], b[w - 1])
+    for i in range(w - 2, -1, -1):
+        c.cx(car[i], car[i + 1])
+        c.andu(a[i], b[i], car[i + 1])
+        c.cx(car[i], a[i]); c.cx(a[i], b[i])   # a restored, b <- a ^ b ^ car
+    c.free(car[1:])
+
+
+def _add(c, a, b, cin):
+    (gidney if ADDER == "gidney" else cuccaro)(c, a, b, cin)
+
+
 def add_view(c, dst, view, neg=None):
     """dst <- dst + view, or dst - view.
 
@@ -160,7 +214,7 @@ def add_view(c, dst, view, neg=None):
         for t in tmp:
             c.cx(neg, t)
         c.cx(neg, cin)
-    cuccaro(c, tmp, dst, cin)
+    _add(c, tmp, dst, cin)
     if neg is True:
         c.x(cin)
         for t in tmp:
@@ -193,7 +247,7 @@ def add_select(c, dst, v0, v1, ctrl):
     tmp = c.alloc(len(dst))
     cin = c.alloc(1)[0]
     load_select(c, tmp, v0, v1, ctrl)
-    cuccaro(c, tmp, dst, cin)
+    _add(c, tmp, dst, cin)
     load_select(c, tmp, v0, v1, ctrl)
     c.free(tmp + [cin])
 

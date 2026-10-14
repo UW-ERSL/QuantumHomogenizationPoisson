@@ -252,7 +252,8 @@ class IsometryCircuit:
         self.fomega, self.domega, self.dtau = fo, domega, dtau
         self.n_arith = len(c.gates)
         self.arith_counts = c.counts()
-        c.gates += c.gates[::-1]                 # uncompute: exact reverse
+        from .revcirc import reverse
+        c.gates += reverse(c.gates)              # uncompute: exact reverse
         self.n_wires = c.n
 
     # -- local gate list (controlled on work bits) ----------------------------
@@ -327,7 +328,8 @@ class IsometryCircuit:
                  "zero mode: CX from flag to b3": 1}
         return dict(N=self.N, F=self.F, I=self.I, width=self.w,
                     wires=self.n_wires + 4, peak_live_wires=self.c.peak_live + 4,
-                    toffoli_compute=ar["ccx"], toffoli_total=2 * ar["ccx"],
+                    toffoli_compute=ar["ccx"] + ar["and"],
+                    toffoli_total=2 * ar["ccx"] + ar["and"] + ar["andu"],
                     cnot_total=2 * ar["cx"], x_total=2 * ar["x"],
                     controlled_rotations=rot, fixed_local_ops=fixed,
                     phase_gates=2 * self.n)
