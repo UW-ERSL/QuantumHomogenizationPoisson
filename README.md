@@ -228,8 +228,9 @@ the cross (two bands of width N/8, v_f = 15/64, connected) and the laminate
 - **Crossover (square, rho = 10, eps = 1e-2):** FFT-PCG, 2 iterations,
   about 0.6 s at N = 1024 (Intel Xeon 2.8 GHz, 2 cores); quantum readout
   4.7e11 Toffolis, 925 days at 170 us per Toffoli (Babbush et al.); crossover
-  at about 1.1e14 unknowns (170 us) and 7e11 unknowns (1 us), varying by about
-  10% with the measured timings.
+  at about 1e14 unknowns (170 us) and 1e12 unknowns (1 us) on that machine
+  (1.1e14 and 6e11 to 7e11 in repeated runs); the crossover scales with the
+  classical speed of the machine that runs the script.
 
 ## Cost per application of U_V
 
