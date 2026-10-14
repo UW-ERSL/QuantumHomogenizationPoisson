@@ -2,12 +2,11 @@
 
     python makeFigures.py              # all figures, about 6 minutes
     python makeFigures.py circuits     # only the two circuit figures, seconds
-    python makeFigures.py isometry conductivity   # only the Sec. 5 figures, about 4 minutes
+    python makeFigures.py isometry     # only the isometry-cost figure (Sec. 3.4), about 4 minutes
 
 figs/readout_circuit.pdf (fig:readout)  the readout circuit of verify_qiskit_qsvt.py, N = 4
 figs/qsvt_circuit.pdf    (fig:qsvt)     the QSVT sequence U_q of verify_qiskit_qsvt.py, d = 3
 figs/isometry_cost.pdf   (fig:isometry-cost) delta 2^F / N for the 42 cases and the Toffoli count against Eq. (toffoli)
-figs/conductivity.pdf    (fig:conductivity)  sigma^H, Reuss and Voigt against rho, N = 64; sigma^V / sigma^H
 figs/spectrum.pdf   (fig:spectrum)   eigenvalues of K^chi and of M, square inclusion, rho = 10
 figs/qsvt_poly.pdf  (fig:qsvt-poly)  the odd QSVT polynomial q_t, rho = 10, eps_p = 1e-3
 figs/angles.pdf     (fig:angles)     omega(k) and the hourglass fraction sin^2 tau(k), N = 32
@@ -247,49 +246,7 @@ def draw_isometry():
     print(f"figs/isometry_cost.pdf: worst delta 2^F/N = {worst:.2f}, worst fit deviation {100 * dev:.2f}%")
 
 
-def draw_conductivity():
-    """figs/conductivity.pdf: sigma^H against the contrast, with the Reuss and Voigt bounds (Sec. 4.3)."""
-    from verify_readout import fe_sigmaH
-    from verify_square import assemble, square_chi
-    N = 64
-    A = assemble(N).tocsr()
-    chi = square_chi(N)
-    vf = chi.mean()
-    assert vf == 0.25
-    rhos = np.unique(np.concatenate([np.logspace(0, 4, 33), [10.0, 1e4]]))
-    sH = []
-    for rho in rhos:
-        St = np.repeat(np.where(chi == 1, 1.0, 1 / rho), 8)
-        S = fe_sigmaH(N, A, St)
-        assert abs(S[0, 1]) < 1e-12 and abs(S[0, 0] - S[1, 1]) < 1e-12 * S[0, 0]   # isotropic
-        sH.append(rho * S[0, 0])                                                   # in units of sigma_min
-    sH = np.array(sH)
-    voigt = vf * rhos + 1 - vf
-    reuss = 1 / (vf / rhos + 1 - vf)
-    assert np.all(reuss <= sH * (1 + 1e-12)) and np.all(sH <= voigt * (1 + 1e-12))
-    ratio = voigt / sH
-    r10, r4 = ratio[rhos == 10.0][0], ratio[rhos == 1e4][0]
-    assert round(r10, 2) == 2.10 and round(r4, -1) == 1440, (r10, r4)               # Sec. 4.3
-    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
-    ax[0].loglog(rhos, voigt, "--", color="0.4", lw=1.0, label=r"Voigt $\sigma^{\mathrm{V}}$")
-    ax[0].loglog(rhos, sH, "-", color="k", lw=1.2, label=r"$\sigma^{H}$")
-    ax[0].loglog(rhos, reuss, ":", color="0.4", lw=1.2, label="Reuss")
-    ax[0].set_xlabel(r"contrast $\rho$"); ax[0].set_ylabel(r"conductivity$/\sigma_{\min}$")
-    ax[0].legend(loc="upper left", frameon=False)
-    ax[0].set_title(r"(a) effective conductivity", fontsize=9)
-    ax[1].loglog(rhos, ratio, "-", color="k", lw=1.2)
-    for rho, r in ((10.0, r10), (1e4, r4)):
-        ax[1].plot(rho, r, "o", color="k", ms=3)
-        ax[1].annotate(f"{r:.2f}" if r < 100 else f"{r:,.0f}", (rho, r), textcoords="offset points",
-                       xytext=(-36, -4) if rho > 100 else (4, -10), fontsize=8)
-    ax[1].set_xlabel(r"contrast $\rho$"); ax[1].set_ylabel(r"$\sigma^{\mathrm{V}}/\sigma^{H}$")
-    ax[1].set_title(r"(b) Voigt bound over $\sigma^{H}$", fontsize=9)
-    fig.tight_layout(); fig.savefig("figs/conductivity.pdf")
-    print(f"figs/conductivity.pdf: sigma^V/sigma^H = {r10:.3f} (rho = 10), {r4:.1f} (rho = 1e4), N = {N}")
-
-
-NEW_FIGURES = {"circuits": draw_circuits, "isometry": draw_isometry,
-               "conductivity": draw_conductivity}
+NEW_FIGURES = {"circuits": draw_circuits, "isometry": draw_isometry}
 ONLY = sys.argv[1:]
 assert all(x in NEW_FIGURES for x in ONLY), f"choose from {list(NEW_FIGURES)}"
 for name, draw in NEW_FIGURES.items():

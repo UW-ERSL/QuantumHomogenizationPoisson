@@ -2,7 +2,9 @@
 
 Code for the paper *A Preconditioned Quantum Algorithm for Periodic
 Homogenization of Two-Phase Conduction* (K. Suresh). Every number the paper
-reports is reproduced by the scripts below.
+reports is reproduced by the scripts below: the numerical experiments of
+Sec. 5 by `experiments.py`, the circuit figures and checks of Secs. 3-4 by
+`makeFigures.py` and the `verify_*.py` scripts.
 
 For a periodic two-phase Q4 conduction cell with conductivity contrast `rho`,
 the cell-problem operator preconditioned by the homogeneous operator `K`,
@@ -19,14 +21,16 @@ conductivity is the Voigt bound minus the quadratic form
 
 This repository builds the wavenumber-controlled stage of `U_V` at gate level,
 the readout circuit (statevector emulation, and one Qiskit circuit with QSVT
-phases), and verifies both against the finite element solution of the cell
-problem. The Python package keeps its original name, `quantuminversionpoisson`.
+phases), verifies both against the finite element solution of the cell
+problem, and runs the numerical experiments of the paper on three dyadic cells
+(square, cross, laminate) up to N = 1024. The Python package keeps its
+original name, `quantuminversionpoisson`.
 
-The baseline of Table 2 uses the subnormalization `alpha = 16/3` of the
-encoding of `K^chi / sigma_max` in the companion package
+The baseline condition number of Sec. 5.2 uses the subnormalization
+`alpha = 16/3` of the encoding of `K^chi / sigma_max` in the companion package
 [`pyblockencode`](https://github.com/UW-ERSL/PyBlockEncode) (`POISSON2D_2PHASE`).
-The value is set in `verify_square.py`; when pyblockencode is installed, the
-script cross-checks it.
+The value is set in `verify_square.py` and `experiments.py`; when
+pyblockencode is installed, `verify_square.py` cross-checks it.
 
 ## Install
 
@@ -61,22 +65,25 @@ print(checks, err, circ.resources()["toffoli_total"])
     python -m quantuminversionpoisson.fourier_symbol   # Sec. 2.2: symbol against assembly, seconds
     python verify_isometry.py          # Secs. 3.3-3.4: circuit checks, about 15 seconds
     python verify_isometry.py --aer    # adds the Qiskit Aer cross-check, about 4 minutes
-    python verify_full_unitary.py      # Sec. 5: full-unitary error of U_V, about 6 minutes
+    python verify_full_unitary.py      # Sec. 3.4: full-unitary error of U_V, about 6 minutes
     python verify_qsvt_degree.py       # Sec. 3.6: QSVT degree and sup norm, a few seconds
-    python verify_square.py            # Sec. 5: condition numbers and encoding of M, about 4 minutes
-    python verify_inverse.py           # Sec. 5: preconditioned inverse on four sources, about 1 minute
-    python verify_readout.py           # Secs. 4 and 5: readout of the effective conductivity, about 2 minutes
-    python verify_qiskit_qsvt.py       # Sec. 5: the readout as one Qiskit circuit with QSVT phases, about 20 seconds
-    python makeTables.py               # Tables 2-4 (tab:kappa, tab:be-M, tab:inverse) to tables/, about 6 minutes
-    python makeFigures.py              # all figures to figs/, about 6 minutes
+    python verify_square.py            # Sec. 3.5: condition numbers and gate-level encoding of M, about 4 minutes
+    python verify_inverse.py           # check: preconditioned inverse on four sources, about 1 minute
+    python verify_readout.py           # Sec. 4: readout of the effective conductivity, about 2 minutes
+    python verify_qiskit_qsvt.py       # Sec. 4.2: the readout as one Qiskit circuit with QSVT phases, about 20 seconds
+    python experiments.py              # Sec. 5: all five experiments, tables/ and figs/, about 6 minutes
+    python experiments.py mesh         # one experiment: geometry, mesh, contrast, accuracy, crossover
+    python makeFigures.py              # all other figures to figs/, about 6 minutes
     python makeFigures.py circuits     # only the two circuit figures, seconds
-    python makeFigures.py isometry     # encoding error and Toffoli count of U_V, about 4 minutes
-    python makeFigures.py conductivity # sigma^H against the contrast, seconds
+    python makeFigures.py isometry     # encoding error and Toffoli count of U_V (Sec. 3.4), about 4 minutes
+    python makeTables.py               # checks of the former Sec. 5 (N <= 64) as tables; not in the paper
 
-`tables/` and `figs/` are generated, not committed. The paper uses
-`figs/spectrum.pdf` (fig:spectrum), `figs/readout_circuit.pdf` (fig:readout),
-`figs/qsvt_circuit.pdf` (fig:qsvt), `figs/isometry_cost.pdf`
-(fig:isometry-cost) and `figs/conductivity.pdf` (fig:conductivity); `makeFigures.py` also writes
+`tables/`, `figs/` and `experiments.json` are generated, not committed. The
+paper uses `figs/spectrum.pdf` (fig:spectrum), `figs/readout_circuit.pdf`
+(fig:readout), `figs/qsvt_circuit.pdf` (fig:qsvt) and `figs/isometry_cost.pdf`
+(fig:isometry-cost) from `makeFigures.py`, and `figs/cells.pdf`, `mesh.pdf`,
+`contrast.pdf`, `accuracy.pdf`, `crossover.pdf` with `tables/geometry.tex`,
+`contrast.tex`, `resources.tex` from `experiments.py`; `makeFigures.py` also writes
 `figs/qsvt_poly.pdf` and `figs/angles.pdf`, which the current paper does not
 use. The circuit figures are drawn from the circuits that `readout()` and
 `u_q()` of `verify_qiskit_qsvt.py` build, with `U_V`, `U_M`, `U_q` and
@@ -98,15 +105,16 @@ use. The circuit figures are drawn from the circuits that `readout()` and
 | `verify_inverse.py` | The preconditioned inverse applied to four heat sources, against the finite element solution in the energy norm, with FFT-PCG iteration counts |
 | `verify_readout.py` | The quadratic form for the effective conductivity (Eq. sigmaH-pre) against the finite element cell solution; a statevector emulation of the readout circuit (Fig. readout) on the gate-level `U_V`; amplitude estimation sampled from its exact output distribution, against Eqs. readout-error and readout-queries |
 | `verify_qiskit_qsvt.py` | The readout circuit built entirely in Qiskit at N = 4, rho = 3: `U_V` (QFT, multiplexed `Q(k)`), `U_Sigma`, `U_M`, the QSVT sequence with pyqsp phases for `q_t`, flags; blocks checked against `Mtilde` and `q_t(Mtilde)/alpha_q`, and the all-zero probability sampled in Aer |
-| `makeTables.py` | Writes the `tabular` of each table of Sec. 5 to `tables/*.tex`, after asserting every claim the text makes about it |
-| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2, the readout and QSVT circuit figures of Secs. 4.2 and 3.6, and the isometry-cost and conductivity figures of Sec. 5 to `figs/`, after asserting every number the text quotes about them (15 qubits; d queries to `U_M`; `delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.54%; 50,430 Toffolis and 3,370 qubits at N = 1024, F = 33; `sigma^V / sigma^H` = 2.10 and 1442) |
+| `experiments.py` | The five experiments of Sec. 5 on the square, cross and laminate, with operators applied matrix-free up to N = 1024; the `R_chi` gate networks, checked on every element; writes `experiments.json`, `tables/*.tex` and `figs/*.pdf`, after asserting every number Sec. 5 quotes |
+| `makeTables.py` | Tables of the checks that formed Sec. 5 before 2026-10-13 (N <= 64), with the claims asserted; not used by the current paper |
+| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2, the isometry-cost figure of Sec. 3.4, and the readout and QSVT circuit figures of Secs. 4.2 and 3.6 to `figs/`, after asserting every number the text quotes about them (15 qubits; d queries to `U_M`; `delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.54%; 50,430 Toffolis and 3,370 qubits at N = 1024, F = 33) |
 
 The scripts write `alpha_q`, the subnormalization of the QSVT polynomial, as
 `C`. `verify_readout.py` emulates the readout for both macroscopic gradients
 (`Z_ab`, `a, b` in `{1, 2}`); the paper uses the single gradient `e = (1, 0)`,
 whose amplitude is `A = Z_11`.
 
-## Factorization (Sec. 5, circuit for the isometry)
+## Factorization (Sec. 3.4)
 
 With `phi_j = pi k_j / N`, `a = sin phi1 cos phi2`, `b = cos phi1 sin phi2`,
 `zeta = sin phi1 sin phi2` and `r = (a^2 + b^2)^{1/2}`,
@@ -124,7 +132,7 @@ patterns. All three rotations act only on states with b3 = 0, so `Q(0)` maps
 rotations directly, and the arithmetic is then reversed so that every work
 wire returns to zero.
 
-## What is verified
+## Implementation checks
 
 **Symbol and isometry (Secs. 2.2, 3.3-3.4).**
 
@@ -142,7 +150,7 @@ wire returns to zero.
 - The exported 594-qubit circuit in Qiskit Aer (MPS) for every `k` at N = 4,
   agreeing to 6.5e-10.
 
-**Preconditioned operator and its inverse (Secs. 3.5-3.6; Tables 2-4).**
+**Preconditioned operator and its inverse (Secs. 3.5-3.6).**
 
 - Square inclusion, `v_f = 1/4`, `N` = 8 ... 64, `rho` = 1.5 ... 1e4:
   `kappa(Mtilde) = rho` exactly (the bound is attained), while the condition
@@ -161,7 +169,7 @@ wire returns to zero.
   the errors by at most 1.2e-7 (F = 24) and 2.8e-9 (F = 32). FFT-PCG reaches
   the same error in 9 to 10 iterations, against d = 145 QSVT queries.
 
-**Readout of the effective conductivity (Secs. 4 and 5).**
+**Readout of the effective conductivity (Sec. 4).**
 
 - Quadratic form, square inclusion, `v_f = 1/4`:
   `sigma^H / sigma_max = sbar - psi^T Mtilde^{-1} psi`, `psi = V^T Sigmatilde ehat`,
@@ -194,6 +202,35 @@ wire returns to zero.
   0.4288 +- 0.0074 (95%). `Q(k)` enters at exact angles; its arithmetic is
   checked by `verify_isometry_aer.py`.
 
+## Numerical experiments (Sec. 5)
+
+All with operators applied matrix-free (FFT for functions of `K`, sparse
+`W^{1/2} G`), N up to 1024 (N_dof ~ 1.05e6), on the square (v_f = 1/4),
+the cross (two bands of width N/8, v_f = 15/64, connected) and the laminate
+(chi = 1 for x < 1/2, exact sigma^H). `R_chi` costs 2, 9 and 0 Toffolis.
+
+- **Cells (N = 256):** `kappa(Mtilde) = rho` to six digits for every cell at
+  rho = 10 and 1e4; quadratic form against FE to 2e-12 or better; laminate
+  against Reuss and Voigt to 1e-13; `sigma^V / sigma^H_11` = 2.10, 1.36, 3.03
+  (rho = 10) and 1444, 1.81, 2501 (rho = 1e4).
+- **Mesh (rho = 10, N = 16 ... 1024):** `kappa(Mtilde) = 10` to ten digits;
+  `kappa(K^chi)` grows by 4.00 per doubling to 1.1e6; the error of `q_t`
+  (d = 145, eps_p = 1e-6) stays in [4.1e-7, 8.6e-7]; FFT-PCG needs 6 to 9
+  iterations (1 for the laminate); Toffolis per query grow from 74,158 to
+  106,622.
+- **Contrast (N = 1024, eps = 1e-2):** Toffolis per readout 4.7e11 (rho = 10)
+  to 1.5e18 (rho = 1e4) relative to Voigt; relative to sigma^H at rho = 1e4,
+  9.6e21 for the square and 3.4e18 for the cross.
+- **Accuracy (N = 256, rho = 10, 2000 runs, seed 1):** the readout meets the
+  bound in at least 94.1% of runs for eps = 1e-1 ... 1e-4; queries grow as
+  eps^-1.20. At N = 1024: 4.7e11, 9.2e12, 1.5e14 Toffolis for eps = 1e-2,
+  1e-3, 1e-4; 3,545 to 4,833 logical qubits.
+- **Crossover (square, rho = 10, eps = 1e-2):** FFT-PCG, 2 iterations,
+  about 0.6 s at N = 1024 (Intel Xeon 2.8 GHz, 2 cores); quantum readout
+  4.7e11 Toffolis, 925 days at 170 us per Toffoli (Babbush et al.); crossover
+  at about 1.1e14 unknowns (170 us) and 7e11 unknowns (1 us), varying by about
+  10% with the measured timings.
+
 ## Cost per application of U_V
 
 Toffoli ~ 41 F^2 + 168 F + 117 + 4 log2 N, within 0.54% for 12 <= F <= 36
@@ -209,7 +246,7 @@ delta = 1e-6: F = 33, 50,430 Toffolis (circuit count), 3,370 qubits.
 2. **Qubit count:** intermediate CORDIC values are kept until the final
    uncomputation; pebbling is not applied.
 3. **Error constant:** `delta <= 6 N 2^-F` is measured in every case tested
-   (Sec. 5); the paper states `F = log2 N + log2(1/delta) + O(1)` (Sec. 3.4)
+   (Sec. 3.4); the paper states `F = log2 N + log2(1/delta) + O(1)` (Sec. 3.4)
    and does not prove the constant.
 4. **QSVT phases at scale:** the phase factors are computed and run in
    Qiskit only at N = 4, rho = 3 (d = 15), with `Q(k)` at exact angles; the
@@ -217,8 +254,13 @@ delta = 1e-6: F = 33, 50,430 Toffolis (circuit count), 3,370 qubits.
    unitary with the block `q_t(Mtilde)/alpha_q` in place of the phase sequence.
 5. **Readout of the full field:** only the effective conductivity is read
    out; the temperature field is not.
-6. **Geometry and dimension:** only the centered square inclusion with
-   dyadic side, isotropic phases, and D = 2 are implemented.
+6. **Geometry and dimension:** only dyadic cells (square, cross, laminate),
+   isotropic phases, and D = 2 are implemented; non-dyadic inclusions need
+   material oracles that are not constructed here.
+7. **Crossover:** the classical time is measured on one machine and
+   extrapolated as N_dof log N_dof beyond N = 1024; the quantum time assumes a
+   logical Toffoli time (170 us, Babbush et al.; or 1 us) and excludes
+   rotation synthesis.
 
 ## Conventions
 
