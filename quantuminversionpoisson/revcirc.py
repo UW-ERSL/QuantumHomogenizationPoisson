@@ -162,7 +162,7 @@ def cuccaro(c, a, b, cin):
     uma(cin, b[0], a[0])
 
 
-ADDER = "cuccaro"     # or "gidney"
+ADDER = "gidney"     # or "cuccaro" (the Cuccaro ripple-carry adder, about twice the Toffoli count)
 
 
 def reverse(gates):

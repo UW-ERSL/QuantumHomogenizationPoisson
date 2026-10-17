@@ -95,19 +95,20 @@ use. The circuit figures are drawn from the circuits that `readout()` and
 | File | Contents |
 |---|---|
 | `quantuminversionpoisson/fourier_symbol.py` | Closed-form scalar symbol of `K` (Eq. symbol-entries), functions of `K` by FFT, `K` assembled element by element |
-| `quantuminversionpoisson/revcirc.py` | X/CX/CCX reversible fixed-point arithmetic (Cuccaro adders, CORDIC), bit-packed simulator; unchanged from the elasticity package |
+| `quantuminversionpoisson/revcirc.py` | X/CX/CCX reversible fixed-point arithmetic (Gidney adders by default, `ADDER = "cuccaro"` for the ripple-carry count; CORDIC), bit-packed simulator; unchanged from the elasticity package |
 | `quantuminversionpoisson/isometry_circuit.py` | Closed-form factorization of `Vhat(k)` into two angles; the gate-level circuit `U_V`; dense reference `V` |
 | `verify_isometry.py` | Arithmetic, factorization, circuit, and scaling checks |
 | `verify_isometry_aer.py` | The exported circuit in Qiskit Aer (MPS) for every wavenumber at N = 4 |
 | `verify_full_unitary.py` | Full 16 x 16 error of the wavenumber-controlled stage against the exact-angle unitary (42 cases), and the Toffoli count |
-| `verify_qsvt_degree.py` | Degree and sup norm of the odd QSVT inverse polynomial against the bounds of Sec. 3.6 (independent of the PDE) |
+| `verify_qsvt_degree.py` | (earlier readout) Degree and sup norm of the odd QSVT inverse polynomial against the bounds of Sec. 3.6 (independent of the PDE) |
 | `verify_square.py` | Condition numbers of `K^chi`, of a separately encoded preconditioner, and of the preconditioned operator; the encoding of `Mtilde` from the gate-level circuit; square inclusion |
 | `verify_inverse.py` | The preconditioned inverse applied to four heat sources, against the finite element solution in the energy norm, with FFT-PCG iteration counts |
 | `verify_readout.py` | The quadratic form for the effective conductivity (Eq. sigmaH-pre) against the finite element cell solution; a statevector emulation of the readout circuit (Fig. readout) on the gate-level `U_V`; amplitude estimation sampled from its exact output distribution, against Eqs. readout-error and readout-queries |
 | `verify_qiskit_qsvt.py` | The readout circuit built entirely in Qiskit at N = 4, rho = 3: `U_V` (QFT, multiplexed `Q(k)`), `U_Sigma`, `U_M`, the QSVT sequence with pyqsp phases for `q_t`, flags; blocks checked against `Mtilde` and `q_t(Mtilde)/alpha_q`, and the all-zero probability sampled in Aer |
+| `verify_lsq_readout.py` | The least-squares readout `sigma^H/sigma_max = g^T (I - Pi) g` (even polynomial `f = (r_t + e_t)/(1 + e_t)`, one `U_V` per query): dense identity check, gate-level `U_V` emulation with pyqsp phases to d = 640, amplitude estimation from its exact distribution, shifted polynomial `A >= 0` |
 | `experiments.py` | The five experiments of Sec. 5 on the square, cross and laminate, with operators applied matrix-free up to N = 1024; the `R_chi` gate networks, checked on every element; writes `experiments.json`, `tables/*.tex` and `figs/*.pdf`, after asserting every number Sec. 5 quotes |
 | `makeTables.py` | Tables of the checks that formed Sec. 5 before 2026-10-13 (N <= 64), with the claims asserted; not used by the current paper |
-| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2, the isometry-cost figure of Sec. 3.4, and the readout and QSVT circuit figures of Secs. 4.2 and 3.6 to `figs/`, after asserting every number the text quotes about them (15 qubits; d queries to `U_M`; `delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.54%; 50,430 Toffolis and 3,370 qubits at N = 1024, F = 33) |
+| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2, the isometry-cost figure of Sec. 3.4, and the readout and QSVT circuit figures of Secs. 4.2 and 3.6 to `figs/`, after asserting every number the text quotes about them (15 qubits; d queries to `U_M`; `delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.43%) |
 
 The scripts write `alpha_q`, the subnormalization of the QSVT polynomial, as
 `C`. `verify_readout.py` emulates the readout for both macroscopic gradients
@@ -214,31 +215,34 @@ the cross (two bands of width N/8, v_f = 15/64, connected) and the laminate
   against Reuss and Voigt to 1e-13; `sigma^V / sigma^H_11` = 2.10, 1.36, 3.03
   (rho = 10) and 1444, 1.81, 2501 (rho = 1e4).
 - **Mesh (rho = 10, N = 16 ... 1024):** `kappa(Mtilde) = 10` to ten digits;
-  `kappa(K^chi)` grows by 4.00 per doubling to 1.1e6; the error of `q_t`
-  (d = 145, eps_p = 1e-6) stays in [4.1e-7, 8.6e-7]; FFT-PCG needs 6 to 9
-  iterations (1 for the laminate); Toffolis per query grow from 74,158 to
-  106,622.
-- **Contrast (N = 1024, eps = 1e-2):** Toffolis per readout 4.7e11 (rho = 10)
-  to 1.5e18 (rho = 1e4) relative to Voigt; relative to sigma^H at rho = 1e4,
-  9.6e21 for the square and 3.4e18 for the cross.
+  `kappa(K^chi)` grows by 4.00 per doubling to 1.2e6; the error of
+  `g^T r_t(B) g` against the cell solution (d = 46, eps_p = 1e-6) is at most
+  1.4e-7 of `sbar`; FFT-PCG needs 1 to 6 iterations to the same error in
+  `sigma^H`; Toffolis per query (one `U_V` and one `R_chi`) grow from 9,516
+  to 15,608.
+- **Contrast (N = 1024, eps = 1e-2):** d = 20, 64, 204, 640 for rho = 10 ...
+  1e4; Toffolis per readout 1.8e9 (rho = 10) to 1.1e11 (rho = 1e4) relative to
+  Voigt; relative to sigma^H at rho = 1e4, 5.8e14 for the square and 2.4e11
+  for the cross.
 - **Accuracy (N = 256, rho = 10, 2000 runs, seed 1):** the readout meets the
-  bound in at least 94.1% of runs for eps = 1e-1 ... 1e-4; queries grow as
-  eps^-1.20. At N = 1024: 4.7e11, 9.2e12, 1.5e14 Toffolis for eps = 1e-2,
-  1e-3, 1e-4; 3,545 to 4,833 logical qubits.
+  bound in at least 93.4% of runs for eps = 1e-1 ... 1e-4; queries grow as
+  eps^-1.13. At N = 1024: 1.8e9, 3.1e10, 4.8e11 Toffolis for eps = 1e-2,
+  1e-3, 1e-4; 2,340 to 3,411 logical qubits.
 - **Crossover (square, rho = 10, eps = 1e-2):** FFT-PCG, 2 iterations,
-  about 0.6 s at N = 1024 (Intel Xeon 2.8 GHz, 2 cores); quantum readout
-  4.7e11 Toffolis, 925 days at 170 us per Toffoli (Babbush et al.); crossover
-  at about 1e14 unknowns (170 us) and 1e12 unknowns (1 us) on that machine
-  (1.1e14 and 6e11 to 7e11 in repeated runs); the crossover scales with the
-  classical speed of the machine that runs the script.
+  about 0.8 s at N = 1024; quantum readout 1.8e9 Toffolis, 3.6 days at
+  170 us per Toffoli (Babbush et al.); crossover at about 4e11 unknowns
+  (170 us) and 2e9 unknowns (1 us) on that machine; the crossover scales with
+  the classical speed of the machine that runs the script (a loaded machine
+  moved it by a factor of 5).
 
 ## Cost per application of U_V
 
-Toffoli ~ 41 F^2 + 168 F + 117 + 4 log2 N, within 0.54% for 12 <= F <= 36
+Toffoli ~ 20.5 F^2 + 64 F + 41 + 4 log2 N, within 0.43% for 12 <= F <= 36
 (the CSD digits of the constant sqrt(2/3) depend on F, so the count is not an
-exact quadratic), with `F = ceil(log2(6 N / delta))` for full-unitary error
+exact quadratic), Gidney adders; with `revcirc.ADDER = "cuccaro"` the count is
+about 2.05 times larger. `F = ceil(log2(6 N / delta))` for full-unitary error
 `delta`; 2F + 1 controlled single-qubit rotations. For N = 1024 and
-delta = 1e-6: F = 33, 50,430 Toffolis (circuit count), 3,370 qubits.
+F = 34: 25,962 Toffolis (circuit count), 3,575 wires.
 
 ## What is NOT established
 

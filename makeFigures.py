@@ -228,12 +228,12 @@ def draw_isometry():
     dev, resid = 0.0, None
     for n in range(2, 11):                                                         # N = 4 ... 1024
         T = np.array([IsometryCircuit(n=n, F=F).resources()["toffoli_total"] for F in Fr])
-        fit = 41 * Fr ** 2 + 168 * Fr + 117 + 4 * n
+        fit = 20.5 * Fr ** 2 + 64 * Fr + 41 + 4 * n
         dev = max(dev, np.max(np.abs(T - fit) / T))
         if resid is None:
             resid = T - fit
-        assert np.array_equal(T - fit, resid)              # N enters only through 4 log2 N
-    assert round(100 * dev, 2) == 0.54, dev                                        # "within 0.54 percent"
+        assert np.allclose(T - fit, resid)                 # N enters only through 4 log2 N
+    assert round(100 * dev, 2) == 0.43, dev                                        # "within 0.43 percent"
     fig.tight_layout(); fig.savefig("figs/isometry_cost.pdf")
     print(f"figs/isometry_cost.pdf: worst delta 2^F/N = {worst:.2f}, worst fit deviation {100 * dev:.2f}%")
 

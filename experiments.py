@@ -26,8 +26,8 @@ import scipy.sparse.linalg as spla
 
 from quantuminversionpoisson.fourier_symbol import symbol
 from quantuminversionpoisson.isometry_circuit import IsometryCircuit
-from verify_inverse import k_function, q_poly
-from verify_readout import poly_constants
+from verify_inverse import k_function
+from verify_readout import ae_samples
 from verify_square import _B, _CORNERS, assemble
 
 ALPHA = 16 / 3            # subnormalization of the encoding of K^chi / sigma_max (Table 2 baseline)
@@ -186,7 +186,7 @@ class Cell:
         return out + self.sbar * v.mean() * np.ones_like(v)
 
     def Mt_op(self):
-        return spla.LinearOperator((self.n, self.n), matvec=self.Mt, dtype=float)
+        return spla.LinearOperator((self.n, self.n), matvec=lambda v: self.Mt(np.ravel(v)), dtype=float)
 
     def Kc(self, u):                                   # K^chi / sigma_max
         return self.A.T @ (self.St * (self.A @ u))
@@ -268,8 +268,8 @@ def lambda_min_Kc(cell, tol=1e-9, seed=0):
     """Smallest nonzero eigenvalue of K^chi / sigma_max by LOBPCG, preconditioned by K^+,
     with the constant field as constraint."""
     n = cell.n
-    Aop = spla.LinearOperator((n, n), matvec=cell.Kc, dtype=float)
-    P = spla.LinearOperator((n, n), matvec=cell.Kinv, dtype=float)
+    Aop = spla.LinearOperator((n, n), matvec=lambda v: cell.Kc(np.ravel(v)), dtype=float)
+    P = spla.LinearOperator((n, n), matvec=lambda v: cell.Kinv(np.ravel(v)), dtype=float)
     X = np.random.default_rng(seed).standard_normal((n, 1))
     X -= X.mean()
     lam, _ = spla.lobpcg(Aop, X, M=P, Y=np.ones((n, 1)), tol=tol, maxiter=500, largest=False)
@@ -277,29 +277,63 @@ def lambda_min_Kc(cell, tol=1e-9, seed=0):
 
 
 # ==========================================================================
-# 3. the QSVT polynomial applied matrix-free
+# 3. the QSVT polynomial applied matrix-free (least-squares readout)
 # ==========================================================================
-def residual_poly(cell, eps_p, v):
-    """r_t(Mtilde^2) v, with x q_t(x) = 1 - r_t(x^2) (Gribling et al.), by the Chebyshev
-    three-term recurrence; t calls of Mtilde^2, so d = 2 t - 1 is the QSVT degree."""
+# sigma^H_11 / sigma_max = g^T (I - Pi) g, g = Sigma~^{1/2} ehat_1, Pi the projector onto the range of
+# Vt = Sigma~^{1/2} V.  The even polynomial f(x) = (r_t(x^2) + e_t) / (1 + e_t), r_t the degree-t
+# Chebyshev polynomial on [1/rho, 1] with r_t(0) = 1 and e_t = 1 / T_t(z0) = max |r_t|, satisfies
+# f(0) = 1 and 0 <= f <= 1 on [-1, 1]; each of its d = 2 t queries is one U_V or U_V^dagger.
+def qsvt_degree(rho, eps_p):
+    """Smallest t with e_t <= eps_p; the QSVT degree is d = 2 t."""
+    a = 1 / rho
+    z0 = (1 + a) / (1 - a)
+    return int(np.ceil(np.arccosh(1 / eps_p) / np.arccosh(z0)))
+
+
+def apply_f(cell, eps_p, a=1):
+    """Returns g, f(Vt) g, t and e_t, with B = Vt Vt^T applied by the Chebyshev recurrence
+    (t applications of B, that is d = 2 t applications of Vt or Vt^T)."""
     rho = cell.rho
-    a = 1 / rho ** 2
-    s = (1 + a) / (1 - a)
-    t = int(np.ceil(0.5 * rho * np.log(2 / eps_p)))
-    B = lambda w: ((1 + a) * w - 2 * cell.Mt(cell.Mt(w))) / (1 - a)
-    T0, T1 = v, B(v)
+    al = 1 / rho
+    z0 = (1 + al) / (1 - al)
+    t = qsvt_degree(rho, eps_p)
+    sq = np.sqrt(cell.St)
+    g = sq * cell.ehat(a)
+    Vt = lambda w: sq * (cell.A @ cell.Kih(w))
+    VtT = lambda u: cell.Kih(cell.A.T @ (sq * u))
+    Z = lambda u: ((1 + al) * u - 2 * Vt(VtT(u))) / (1 - al)
+    T0, T1 = g, Z(g)
     for _ in range(t - 1):
-        T0, T1 = T1, 2 * B(T1) - T0
-    return T1 / np.cosh(t * np.arccosh(s)), 2 * t - 1
+        T0, T1 = T1, 2 * Z(T1) - T0
+    e = 1 / np.cosh(t * np.arccosh(z0))
+    r = T1 * e                                                         # r_t(B) g
+    return g, (r + e * g) / (1 + e), t, e
 
 
-def poly_energy_error(cell, eps_p, psi):
-    """Relative Mtilde-norm error of q_t(Mtilde) psi against Mtilde^{-1} psi:
-    Mtilde (q psi - Mtilde^{-1} psi) = -r psi, so err^2 = (r psi)^T Mtilde^{-1} (r psi)."""
-    rpsi, d = residual_poly(cell, eps_p, psi)
-    x = cell.solve_Mt(psi)
-    y = cell.solve_Mt(rpsi)
-    return float(np.sqrt((rpsi @ y) / (psi @ x))), d, x
+def poly_readout(cell, eps_p, a=1):
+    """sigma^H_aa / sigma_max by the QSVT polynomial: s = (1 + e_t) A - e_t sbar with A = g^T f(Vt) g >= 0.
+    Returns the estimate, A, the degree d and e_t."""
+    g, fg, t, e = apply_f(cell, eps_p, a)
+    A = float(g @ fg)
+    return (1 + e) * A - e * float(g @ g), A, 2 * t, e
+
+
+def pcg_sigma_iterations(cell, tol, a=1):
+    """FFT-PCG iterations until sigma_k - sigma^H <= tol (the error of the energy functional)."""
+    e = cell.ehat(a)
+    f = -(cell.A.T @ (cell.St * e))
+    vref, _ = pcg(cell.Kc, cell.Kinv, f, 1e-13)
+    gr = e + cell.A @ vref
+    sH = gr @ (cell.St * gr)
+    b = f - f.mean()
+    x = np.zeros_like(b); r = b.copy(); z = cell.Kinv(r); z -= z.mean(); p = z.copy(); rz = r @ z
+    for it in range(1, 5001):
+        Ap = cell.Kc(p); al = rz / (p @ Ap); x += al * p; r -= al * Ap
+        gk = e + cell.A @ x
+        if abs(gk @ (cell.St * gk) - sH) <= tol:
+            return it
+        z = cell.Kinv(r); z -= z.mean(); rzn = r @ z; p = z + (rzn / rz) * p; rz = rzn
+    raise RuntimeError("pcg did not converge")
 
 
 # ==========================================================================
@@ -314,23 +348,26 @@ def uv_counts(N, F):
 
 
 def readout_resources(name, N, rho, eps, sigma_ratio=1.0):
-    """Sec. 4.3 at error eps relative to the Voigt bound (divided by sigma_ratio for an
-    error relative to sigma^H): eps_p = eps/3, F from 6 N 2^-F, M = ceil(3 pi alpha_q / (eps sbar))."""
+    """Sec. 4.3 at error eps relative to the Voigt bound (divided by sigma_ratio for an error
+    relative to sigma^H): eps_p = eps_eff / 3, F from 6 N 2^-F, M = ceil(3 pi alpha / (eps_eff sbar)),
+    one U_V and one controlled R_chi per query."""
     eps_eff = eps / sigma_ratio
-    q, d, aq = poly_constants(rho, eps_eff / 3)
+    eps_p = eps_eff / 3
+    d = 2 * qsvt_degree(rho, eps_p)
+    aq = 1 + eps_p
     vf = chi(name, 16).mean()
     sbar = vf + (1 - vf) / rho
-    F = int(np.ceil(np.log2(DELTA_CONST * N * 6 * aq * (d + 1) / (eps_eff * sbar))))
+    F = int(np.ceil(np.log2(DELTA_CONST * N * 3 * d * aq / eps_eff)))
     M = int(np.ceil(3 * np.pi * aq / (eps_eff * sbar)))
     queries = (2 * M - 1) * d
     uv = uv_counts(N, F)
     orc = check_oracle(name)
-    per_q_tof = 2 * uv["toffoli"] + orc["toffoli"]
-    per_q_rot = 2 * (uv["cordic_rot"] + uv["qft_rot"]) + 2      # + the two Ry of U_Sigma
+    per_q_tof = uv["toffoli"] + orc["toffoli"]
+    per_q_rot = (uv["cordic_rot"] + uv["qft_rot"]) + 2          # + the two Ry of the Sigma^{1/2} LCU
     return dict(name=name, N=N, rho=rho, eps=eps, sigma_ratio=sigma_ratio, F=F, d=d,
                 alpha_q=aq, sbar=sbar, M=M, queries=queries, toffoli_per_query=per_q_tof,
                 rot_per_query=per_q_rot, oracle_toffoli=orc["toffoli"],
-                toffoli_total=float(queries) * per_q_tof, qubits=uv["qubits"] + 7)
+                toffoli_total=float(queries) * per_q_tof, qubits=uv["qubits"] + 5)
 
 
 # ==========================================================================
@@ -394,12 +431,12 @@ def exp_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=10.0, eps_p=1e-6, eps=1e-
             c = Cell(g, N, rho)
             lo, hi = extreme_eigs(c)
             lk = lambda_min_Kc(c)
-            psi = c.psi(1)
-            err, d, x = poly_energy_error(c, eps_p, psi)
-            # FFT-PCG on K^chi v = -f to the same relative energy error, from v = 0
-            f = -(c.A.T @ (c.St * c.ehat(1)))
-            vref, _ = pcg(c.Kc, c.Kinv, f, 1e-13)
-            _, it = pcg(c.Kc, c.Kinv, f, 0, x_ref=vref, energy_tol=max(err, 1e-12))
+            sFE = c.fe_sigma()[0, 0]
+            s_est, A, d, e_t = poly_readout(c, eps_p)
+            err = abs(s_est - sFE) / c.sbar                      # error of g^T r_t(B) g, in units of sbar
+            assert A >= 0
+            # FFT-PCG from v = 0 to the same error in sigma^H (the energy error of the cell solution)
+            it = pcg_sigma_iterations(c, max(err, 1e-12) * c.sbar)
             res = readout_resources(g, N, rho, eps)
             lamK = 2 * (1 - np.cos(2 * np.pi / N))
             r = dict(geometry=g, N=N, kappa_M=1 / lo, lam_max=hi, kappa_Kc=ALPHA / lk,
@@ -415,7 +452,7 @@ def exp_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=10.0, eps_p=1e-6, eps=1e-
     # ---- assertions: every claim of Sec. 5.2
     for r in rows:
         assert abs(r["kappa_M"] - rho) < 1e-6 * rho and abs(r["lam_max"] - 1) < 1e-8, r   # kappa = rho
-        assert r["poly_err"] <= eps_p and r["d"] == 145, r                                 # flat at d = 145
+        assert r["poly_err"] <= eps_p and r["d"] == 46, r                                  # flat at d = 46
         assert r["kappa_P"] > r["kappa_Kc"], r
     for g in GEOMETRIES:
         k = [r["kappa_Kc"] for r in rows if r["geometry"] == g]
@@ -445,11 +482,11 @@ def exp_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=10.0, eps_p=1e-6, eps=1e-
     ax[1].axhline(eps_p, color="0.5", lw=0.8, ls="--")
     ax[1].text(ndof("square")[0], eps_p * 1.25, r"$\epsilon_p$", fontsize=8)
     ax[1].set_ylim(1e-8, 1e-5); ax[1].set_xlabel(r"$N_{\mathrm{dof}}$")
-    ax[1].set_ylabel("relative energy error")
-    ax[1].set_title(f"(b) error of $q_t$, $d = {rows[0]['d']}$", fontsize=9)
+    ax[1].set_ylabel(r"$|\hat\sigma - \sigma^H/\sigma_{\max}|/\bar\sigma$")
+    ax[1].set_title(f"(b) error of $f$, $d = {rows[0]['d']}$", fontsize=9)
     ax[2].semilogx(ndof("square"), [tof[N] / 1e3 for N in Ns], "-o", color="k", ms=3, lw=1)
     ax[2].set_xlabel(r"$N_{\mathrm{dof}}$"); ax[2].set_ylabel(r"Toffoli gates per query ($10^3$)")
-    ax[2].set_title(r"(c) cost of one query to $\mathcal{U}_M$", fontsize=9)
+    ax[2].set_title(r"(c) cost of one query to $\mathcal{U}_V$", fontsize=9)
     ax[2].set_ylim(0, None)
     fig.tight_layout(); fig.savefig("figs/mesh.pdf"); print("figs/mesh.pdf")
 
@@ -548,12 +585,12 @@ def exp_contrast(N_fe=256, N_q=1024, eps=1e-2):
     trows = []
     for rho in (10.0, 1e2, 1e3, 1e4):
         v = res["square", rho, "V"]
-        trows.append([p10(rho), intx(v["d"]), sci(v["alpha_q"], 3), sci(v["M"], 2),
+        trows.append([p10(rho), intx(v["d"]), sci(v["M"], 2),
                       sci(v["queries"], 2), sci(v["toffoli_total"], 2),
                       sci(res["square", rho, "H"]["toffoli_total"], 2),
                       sci(res["cross", rho, "H"]["toffoli_total"], 2)])
-    write_table("contrast", ["$\\rho$", "$d$", "$\\alpha_q$", "$M$", "queries", "Toffoli",
-                             "square, $\\sigma^H$", "cross, $\\sigma^H$"], trows, "rrrrrrrr")
+    write_table("contrast", ["$\\rho$", "$d$", "$M$", "queries", "Toffoli",
+                             "square, $\\sigma^H$", "cross, $\\sigma^H$"], trows, "rrrrrrr")
 
     plt = plt_setup()
     fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
@@ -579,32 +616,27 @@ def exp_contrast(N_fe=256, N_q=1024, eps=1e-2):
 # 9. Experiment 4: accuracy and resources
 # ==========================================================================
 def exp_accuracy(N=256, rho=10.0, runs=2000, seed=1, N_res=1024):
-    from verify_readout import ae_samples
     c = Cell("square", N, rho)
-    psi = c.psi(1)
-    x = c.solve_Mt(psi)
-    cex = psi @ x
-    target = c.sbar - cex                                     # sigma^H / sigma_max
+    target = c.fe_sigma()[0, 0]                               # sigma^H / sigma_max
     epss = [1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4]
     rows = []
     rng = np.random.default_rng(seed)
     for eps in epss:
         eps_p = eps / 3
-        q, d, aq = poly_constants(rho, eps_p)
-        rpsi, d2 = residual_poly(c, eps_p, psi)
-        assert d2 == d
-        A = (x @ (psi - rpsi)) / aq                           # psi^T q_t(Mt) psi / alpha_q
+        s_poly, A, d, e_t = poly_readout(c, eps_p)
+        aq = 1 + eps_p
         M = int(np.ceil(3 * np.pi * aq / (eps * c.sbar)))
         Ahat = np.sqrt(ae_samples(A ** 2, M, runs, rng))
-        err = np.abs(c.sbar - aq * Ahat - target) / c.sbar
+        est = lambda Ah: (1 + e_t) * Ah - e_t * c.sbar
+        err = np.abs(est(Ahat) - target) / c.sbar
         med = np.median(Ahat.reshape(-1, 5), axis=1)
         r = dict(eps=eps, d=d, alpha_q=aq, M=M, queries=(2 * M - 1) * d,
                  err_median=float(np.median(err)), err_q=float(np.quantile(err, 8 / np.pi ** 2)),
                  success=float(np.mean(err <= eps)),
-                 success_median5=float(np.mean(np.abs(c.sbar - aq * med - target) / c.sbar <= eps)),
-                 poly_part=float(abs(x @ rpsi) / c.sbar / eps))
+                 success_median5=float(np.mean(np.abs(est(med) - target) / c.sbar <= eps)),
+                 poly_part=float(abs(s_poly - target) / c.sbar / eps))
         rows.append(r)
-        print(f"accuracy eps={eps:g}: d={d} alpha_q={aq:.4g} M={M} queries={r['queries']:.3e} "
+        print(f"accuracy eps={eps:g}: d={d} alpha={aq:.4g} M={M} queries={r['queries']:.3e} "
               f"median err/eps={r['err_median'] / eps:.3f} q(8/pi^2)/eps={r['err_q'] / eps:.3f} "
               f"success={r['success']:.4f} median5={r['success_median5']:.3f} "
               f"poly/eps={r['poly_part']:.2e}", flush=True)
@@ -622,14 +654,14 @@ def exp_accuracy(N=256, rho=10.0, runs=2000, seed=1, N_res=1024):
     RESULTS["accuracy"] = dict(samples=rows, slope=slope, resources=res)
     trows = []
     for v in res:
-        trows.append([p10(v["eps"]), f"${v['F']}$", f"${v['d']}$", sci(v["alpha_q"], 3),
+        trows.append([p10(v["eps"]), f"${v['F']}$", f"${v['d']}$",
                       sci(v["M"], 2), sci(v["queries"], 2),
                       f"${v['toffoli_per_query']:,}$".replace(",", "{,}"),
                       f"${v['rot_per_query']}$", sci(v["toffoli_total"], 2),
                       f"${v['qubits']:,}$".replace(",", "{,}")])
-    write_table("resources", ["$\\epsilon$", "$F$", "$d$", "$\\alpha_q$", "$M$", "queries",
+    write_table("resources", ["$\\epsilon$", "$F$", "$d$", "$M$", "queries",
                               "Toffoli/query", "rotations/query", "Toffoli", "qubits"],
-                trows, "rrrrrrrrrr")
+                trows, "rrrrrrrrr")
     plt = plt_setup()
     fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
     ax[0].loglog(e, [r["err_median"] for r in rows], "-o", color="k", ms=3, lw=1, label="median")
@@ -640,7 +672,7 @@ def exp_accuracy(N=256, rho=10.0, runs=2000, seed=1, N_res=1024):
     ax[0].legend(frameon=False, loc="upper left")
     ax[0].set_title(f"(a) readout error, {runs} runs", fontsize=9)
     ax[1].loglog(e, q, "-o", color="k", ms=3, lw=1)
-    ax[1].set_xlabel(r"target $\epsilon$"); ax[1].set_ylabel(r"queries to $\mathcal{U}_M$")
+    ax[1].set_xlabel(r"target $\epsilon$"); ax[1].set_ylabel(r"queries to $\mathcal{U}_V$")
     ax[1].set_title(f"(b) queries $\\propto \\epsilon^{{{slope:.2f}}}$", fontsize=9)
     fig.tight_layout(); fig.savefig("figs/accuracy.pdf"); print("figs/accuracy.pdf")
 
@@ -649,17 +681,18 @@ def exp_accuracy(N=256, rho=10.0, runs=2000, seed=1, N_res=1024):
 # 10. Experiment 5: comparison with FFT-PCG
 # ==========================================================================
 def toffoli_fit(N, F):
-    return 41 * F ** 2 + 168 * F + 117 + 4 * np.log2(N)
+    return 20.5 * F ** 2 + 64 * F + 41 + 4 * np.log2(N)
 
 
 def quantum_toffolis(N, rho=10.0, eps=1e-2, name="square"):
     """Total Toffolis of one readout at mesh N, with Eq. (toffoli) for U_V beyond N = 1024."""
-    q, d, aq = poly_constants(rho, eps / 3)
+    d = 2 * qsvt_degree(rho, eps / 3)
+    aq = 1 + eps / 3
     vf = chi(name, 16).mean()
     sbar = vf + (1 - vf) / rho
-    F = int(np.ceil(np.log2(DELTA_CONST * N * 6 * aq * (d + 1) / (eps * sbar))))
+    F = int(np.ceil(np.log2(DELTA_CONST * N * 3 * d * aq / eps)))
     M = int(np.ceil(3 * np.pi * aq / (eps * sbar)))
-    return (2 * M - 1) * d * (2 * toffoli_fit(N, F) + check_oracle(name)["toffoli"])
+    return (2 * M - 1) * d * (toffoli_fit(N, F) + check_oracle(name)["toffoli"])
 
 
 def exp_crossover(Ns=(64, 128, 256, 512, 1024), rho=10.0, eps=1e-2, t_T=(170e-6, 1e-6)):
@@ -696,7 +729,7 @@ def exp_crossover(Ns=(64, 128, 256, 512, 1024), rho=10.0, eps=1e-2, t_T=(170e-6,
         cross[tt] = float(Nx[idx[0]] ** 2) if len(idx) else None
         print(f"crossover at t_T = {tt * 1e6:g} us: N_dof = {cross[tt]:.3g}" if cross[tt]
               else f"no crossover below N_dof = {Nx[-1] ** 2:.3g} at t_T = {tt * 1e6:g} us")
-    assert 1e14 < cross[170e-6] < 1e15 and 1e11 < cross[1e-6] < 1e13, cross     # Sec. 5.5
+    assert 1e10 < cross[170e-6] < 1e12 and 1e8 < cross[1e-6] < 1e10, cross       # Sec. 5.5
     tq1024 = quantum_toffolis(1024, rho, eps)
     RESULTS["crossover"] = dict(classical=rows, c_fit=cfit, crossover_ndof=cross,
                                 toffoli_1024=tq1024)
