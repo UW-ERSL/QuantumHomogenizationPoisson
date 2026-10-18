@@ -168,10 +168,12 @@ def A_matrix(N):
 class Cell:
     """Two-phase cell: N, rho, geometry; Mtilde, K^chi and the cell problem, matrix-free."""
 
-    def __init__(self, name, N, rho):
-        self.name, self.N, self.rho = name, N, rho
+    def __init__(self, name, N, rho, dual=False):
+        self.name, self.N, self.rho, self.dual = name, N, rho, dual
         self.A = A_matrix(N)
         self.chi = chi(name, N)
+        if dual:                                       # phases interchanged: sigma* = sigma_min sigma_max / sigma
+            self.chi = 1.0 - self.chi
         self.vf = self.chi.mean()
         self.St = np.repeat(np.where(self.chi == 1, 1.0, 1 / rho), 8)       # Sigma / sigma_max
         self.sbar = self.vf + (1 - self.vf) / rho
@@ -225,6 +227,19 @@ class Cell:
         sol = [self.solve_Mt(p) if np.linalg.norm(p) > 0 else 0 * p for p in ps]
         c = np.array([[ps[a] @ sol[b] for b in range(2)] for a in range(2)])
         return self.sbar * np.eye(2) - c, ps, sol
+
+
+def dual_tensor(s, rho):
+    """Keller-Dykhne (2D): sigma^{H*}/sigma_max of the interchanged-phase cell from s = sigma^H/sigma_max,
+    s* = R s^{-1} R^T / rho with R the rotation by 90 degrees (axes swapped for a diagonal s)."""
+    R = np.array([[0.0, 1.0], [-1.0, 0.0]])
+    return R @ np.linalg.inv(s) @ R.T / rho
+
+
+def prefer_dual(rho, s_aa):
+    """Sec. 4.4: the readout amplitudes are a = sigma^H/sigma_max (primal) and a* = sigma_min/sigma^H (dual),
+    with a a* = 1/rho; the cost is proportional to 1/a, so the dual is cheaper iff sigma^H < sqrt(sigma_min sigma_max)."""
+    return s_aa < rho ** -0.5
 
 
 def pcg(Aop, Pop, b, tol, x_ref=None, energy_tol=None, maxiter=5000):
@@ -347,7 +362,7 @@ def uv_counts(N, F):
                 qft_rot=2 * 2 * n * (n - 1) // 2, qubits=r["wires"])
 
 
-def readout_resources(name, N, rho, eps, sigma_ratio=1.0):
+def readout_resources(name, N, rho, eps, sigma_ratio=1.0, dual=False):
     """Sec. 4.3 at error eps relative to the Voigt bound (divided by sigma_ratio for an error
     relative to sigma^H): eps_p = eps_eff / 3, F from 6 N 2^-F, M = ceil(3 pi alpha / (eps_eff sbar)),
     one U_V and one controlled R_chi per query."""
@@ -356,6 +371,8 @@ def readout_resources(name, N, rho, eps, sigma_ratio=1.0):
     d = 2 * qsvt_degree(rho, eps_p)
     aq = 1 + eps_p
     vf = chi(name, 16).mean()
+    if dual:                                   # complemented indicator: R_{1-chi} = -R_chi, same Toffoli count
+        vf = 1 - vf
     sbar = vf + (1 - vf) / rho
     F = int(np.ceil(np.log2(DELTA_CONST * N * 3 * d * aq / eps_eff)))
     M = int(np.ceil(3 * np.pi * aq / (eps_eff * sbar)))
@@ -364,7 +381,7 @@ def readout_resources(name, N, rho, eps, sigma_ratio=1.0):
     orc = check_oracle(name)
     per_q_tof = uv["toffoli"] + orc["toffoli"]
     per_q_rot = (uv["cordic_rot"] + uv["qft_rot"]) + 2          # + the two Ry of the Sigma^{1/2} LCU
-    return dict(name=name, N=N, rho=rho, eps=eps, sigma_ratio=sigma_ratio, F=F, d=d,
+    return dict(name=name, N=N, rho=rho, eps=eps, sigma_ratio=sigma_ratio, dual=dual, F=F, d=d,
                 alpha_q=aq, sbar=sbar, M=M, queries=queries, toffoli_per_query=per_q_tof,
                 rot_per_query=per_q_rot, oracle_toffoli=orc["toffoli"],
                 toffoli_total=float(queries) * per_q_tof, qubits=uv["qubits"] + 5)
@@ -558,57 +575,92 @@ def exp_geometry(N=256, rhos=(10.0, 1e4)):
 # 8. Experiment 3: contrast
 # ==========================================================================
 def exp_contrast(N_fe=256, N_q=1024, eps=1e-2):
+    """Cancellation factor and readout cost, primal and dual (Keller-Dykhne) side, Sec. 4.4 and 5.3."""
     rhos = np.unique(np.concatenate([np.logspace(0.25, 4, 16), [10.0, 1e2, 1e3, 1e4]]))
-    ratio = {g: [] for g in GEOMETRIES}
+    keys = (10.0, 1e2, 1e3, 1e4)
+    ratio = {g: [] for g in GEOMETRIES}                    # primal sigma^V / sigma^H_11
+    ratio_d = {g: [] for g in GEOMETRIES}                  # dual sigma*^V / sigma*^H_22
+    ratio_b = {g: [] for g in GEOMETRIES}                  # better of the two sides
+    use_dual = {g: [] for g in GEOMETRIES}
+    duality_err = 0.0
     for g in GEOMETRIES:
         for rho in rhos:
-            c = Cell(g, N_fe, rho)
-            ratio[g].append(c.sbar / c.fe_sigma()[0, 0])
-        print(f"contrast {g}: sigma^V/sigma^H_11 = " +
+            c, cd = Cell(g, N_fe, rho), Cell(g, N_fe, rho, dual=True)
+            s, sd = c.fe_sigma(), cd.fe_sigma()
+            # Keller-Dykhne: sigma^H* / sigma_max = R (sigma^H/sigma_max)^{-1} R^T / rho
+            duality_err = max(duality_err, np.abs(sd - dual_tensor(s, rho)).max() / sd.max())
+            r1, r2 = c.sbar / s[0, 0], cd.sbar / sd[1, 1]
+            ratio[g].append(r1); ratio_d[g].append(r2)
+            dflag = bool(prefer_dual(rho, s[0, 0]))
+            use_dual[g].append(dflag)
+            ratio_b[g].append(r2 if dflag else r1)
+            assert dflag == (sd[1, 1] > s[0, 0]) or abs(sd[1, 1] / s[0, 0] - 1) < 1e-2, (g, rho, s, sd)  # cost ~ 1/amplitude
+            assert ratio_b[g][-1] <= rho ** 0.5 * 1.01, (g, rho, ratio_b[g][-1])
+        print(f"contrast {g}: primal sigma^V/sigma^H_11 = " +
               ", ".join(f"{r:.3g}" for r in ratio[g]), flush=True)
+        print(f"contrast {g}: dual   sigma^V/sigma^H_22 = " +
+              ", ".join(f"{r:.3g}" for r in ratio_d[g]), flush=True)
+    print(f"contrast: max duality defect (relative, N={N_fe}) = {duality_err:.2e}")
+    assert duality_err < 1e-2, duality_err
     res = {}
     for g in GEOMETRIES:
-        for rho, rt in zip(rhos, ratio[g]):
-            if rho in (10.0, 1e2, 1e3, 1e4):
+        for rho, r1, r2 in zip(rhos, ratio[g], ratio_d[g]):
+            if rho in keys:
                 res[g, rho, "V"] = readout_resources(g, N_q, rho, eps)
-                res[g, rho, "H"] = readout_resources(g, N_q, rho, eps, sigma_ratio=rt)
-    RESULTS["contrast"] = dict(rhos=rhos.tolist(), ratio=ratio,
+                res[g, rho, "H"] = readout_resources(g, N_q, rho, eps, sigma_ratio=r1)
+                res[g, rho, "D"] = readout_resources(g, N_q, rho, eps, sigma_ratio=r2, dual=True)
+                best = "D" if res[g, rho, "D"]["toffoli_total"] < res[g, rho, "H"]["toffoli_total"] else "H"
+                res[g, rho, "B"] = res[g, rho, best]
+                res[g, rho, "B"]["side"] = best
+    RESULTS["contrast"] = dict(rhos=rhos.tolist(), ratio=ratio, ratio_dual=ratio_d, ratio_best=ratio_b,
+                               use_dual=use_dual, duality_defect=duality_err,
                                resources={f"{k[0]}|{k[1]}|{k[2]}": v for k, v in res.items()})
-    for g in GEOMETRIES:                                    # Sec. 4.3 values; the cross stays bounded
-        r = dict(zip(rhos, ratio[g]))
-        if g == "square":
-            assert round(r[10.0], 2) == 2.10 and round(r[1e4], -1) == 1440, r
+    r = dict(zip(rhos, ratio["square"]))                    # Sec. 4.3 values (primal) are unchanged
+    assert round(r[10.0], 2) == 2.10 and round(r[1e4], -1) == 1440, r
     assert max(ratio["cross"]) < 2.0, ratio["cross"]
     for k, v in res.items():
-        print(f"contrast resources {k}: d={v['d']} alpha_q={v['alpha_q']:.4g} M={v['M']:.3e} "
+        print(f"contrast resources {k}: d={v['d']} M={v['M']:.3e} "
               f"queries={v['queries']:.3e} Toffolis={v['toffoli_total']:.3e} F={v['F']}")
+    # the rule picks the cheaper side whenever the cost ratio is not within the FE/rounding margin
+    for g in GEOMETRIES:
+        for rho in keys:
+            cheaper = "D" if res[g, rho, "D"]["toffoli_total"] < res[g, rho, "H"]["toffoli_total"] else "H"
+            print(f"contrast side {g} rho={rho:g}: cheaper={cheaper} "
+                  f"primal/dual={res[g, rho, 'H']['toffoli_total'] / res[g, rho, 'D']['toffoli_total']:.3g}")
     trows = []
-    for rho in (10.0, 1e2, 1e3, 1e4):
+    for rho in keys:
         v = res["square", rho, "V"]
-        trows.append([p10(rho), intx(v["d"]), sci(v["M"], 2),
-                      sci(v["queries"], 2), sci(v["toffoli_total"], 2),
+        trows.append([p10(rho), intx(v["d"]), sci(v["M"], 2), sci(v["queries"], 2),
+                      sci(v["toffoli_total"], 2),
                       sci(res["square", rho, "H"]["toffoli_total"], 2),
-                      sci(res["cross", rho, "H"]["toffoli_total"], 2)])
+                      sci(res["square", rho, "B"]["toffoli_total"], 2),
+                      sci(res["cross", rho, "H"]["toffoli_total"], 2),
+                      sci(res["cross", rho, "B"]["toffoli_total"], 2)])
     write_table("contrast", ["$\\rho$", "$d$", "$M$", "queries", "Toffoli",
-                             "square, $\\sigma^H$", "cross, $\\sigma^H$"], trows, "rrrrrrr")
+                             "square, $\\sigma^H$", "square, best side",
+                             "cross, $\\sigma^H$", "cross, best side"], trows, "rrrrrrrrr")
 
     plt = plt_setup()
     fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
+    rr = list(keys)
     for g in GEOMETRIES:
         ls, col, mk = STYLE[g]
         lab = g + (r" ($\sigma^H_{11}$)" if g == "laminate" else "")
         ax[0].loglog(rhos, ratio[g], ls, color=col, lw=1.2, label=lab)
-        rr = [r for r in (10.0, 1e2, 1e3, 1e4)]
-        ax[1].loglog(rr, [res[g, r, "H"]["toffoli_total"] for r in rr], ls, color=col, marker=mk,
+        ax[0].loglog(rhos, ratio_b[g], ls, color=col, lw=0.6, alpha=0.9)
+        ax[1].loglog(rr, [res[g, r_, "H"]["toffoli_total"] for r_ in rr], ls, color=col, marker=mk,
                      ms=3, lw=1.2, label=lab)
-    ax[1].loglog(rr, [res["square", r, "V"]["toffoli_total"] for r in rr], "-", color="0.8", lw=2.5,
+        ax[1].loglog(rr, [res[g, r_, "B"]["toffoli_total"] for r_ in rr], ls, color=col, marker=mk,
+                     ms=3, lw=0.6, mfc="none")
+    ax[1].loglog(rr, [res["square", r_, "V"]["toffoli_total"] for r_ in rr], "-", color="0.8", lw=2.5,
                  zorder=0, label="relative to Voigt")
+    ax[0].loglog(rhos, rhos ** 0.5, "-", color="0.8", lw=2.5, zorder=0, label=r"bound $\sqrt{\rho}$")
     ax[0].set_xlabel(r"contrast $\rho$"); ax[0].set_ylabel(r"$\sigma^{\mathrm{V}}/\sigma^H$")
-    ax[0].legend(frameon=False, loc="upper left")
-    ax[0].set_title(r"(a) cancellation factor $\sigma^{\mathrm{V}}/\sigma^H$", fontsize=9)
+    ax[0].legend(frameon=False, loc="upper left", fontsize=6.5)
+    ax[0].set_title(r"(a) cancellation: primal (thick), best side (thin)", fontsize=8)
     ax[1].set_xlabel(r"contrast $\rho$"); ax[1].set_ylabel("Toffoli gates per readout")
     ax[1].legend(frameon=False, loc="upper left", fontsize=6.5)
-    ax[1].set_title(r"(b) readout at $1\%$ relative error, $N = 1024$", fontsize=9)
+    ax[1].set_title(r"(b) $1\%$ relative error, $N = 1024$: primal (thick), best (thin)", fontsize=8)
     fig.tight_layout(); fig.savefig("figs/contrast.pdf"); print("figs/contrast.pdf")
 
 
