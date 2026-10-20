@@ -1,4 +1,4 @@
-"""verify_isometry -- checks for the gate-level circuit U_V (Sec. 3.3 and App. B).
+"""verify_isometry -- checks for the gate-level circuit U_V (Secs. 3.5 and 4, App. B).
 
     python verify_isometry.py          # about 1 minute
     python verify_isometry.py --aer    # adds the Qiskit Aer cross-check

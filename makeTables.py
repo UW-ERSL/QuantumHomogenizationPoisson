@@ -1,6 +1,7 @@
-"""makeTables.py -- every table in the paper, written to tables/ as LaTeX.
+"""makeTables.py -- the two dense-check tables of Sec. 5 (tab:be-M, tab:inverse), written to
+tables/ as LaTeX; experiments.py writes tables/geometry.tex and tables/resources.tex.
 
-    python makeTables.py                 all tables (about 6 minutes)
+    python makeTables.py                 both tables (about 3 minutes)
     python makeTables.py inverse         just that one
     python makeTables.py --list          names and destinations
 
@@ -26,7 +27,7 @@ import sys
 
 import numpy as np
 
-from verify_square import spectra, prop4_check, ALPHA
+from verify_square import prop4_check
 from verify_full_unitary import full_error
 from verify_inverse import inverse_case, residual, LOADS
 
@@ -61,32 +62,7 @@ def kappa_fmt(x: float) -> str:
 
 
 # ==========================================================================
-#  Table 1 (tab:kappa): condition numbers seen by QSVT
-# ==========================================================================
-def tab_kappa() -> None:
-    rows, prev, ratios = [], None, []
-    for N in (8, 16, 32, 64):
-        r = spectra(N, RHO)
-        kK = ALPHA / r["Kmin"]
-        kM = r["kappaM"]
-        assert abs(kM / RHO - 1) < 1e-9, (N, kM)                    # "equals rho at every N"
-        if prev is not None:
-            ratios.append(kK / prev)
-            assert 3.5 < kK / prev < 4.0, (N, kK / prev)            # "approaching 4 per doubling"
-        prev = kK
-        # separately encoded preconditioner P = (K^+)^{1/2}: best possible alpha_P^2 = ||K^+||,
-        # and P (K^chi / sigma_max) P = M, so kappa_P >= ||K^+|| * ALPHA * ||M^+|| = ||K^+|| ALPHA rho
-        Kplus = 1 / (2 * (1 - np.cos(2 * np.pi / N)))                # 1 / lambda_min^+(K), Eq. (app-lambda-min)
-        kP = Kplus * ALPHA * kM
-        assert kP >= kK, (N, kP, kK)                                 # "kappa_P >= kappa" (Eq. product-barrier)
-        rows.append([f"${N}$", kappa_fmt(kK), kappa_fmt(kP), f"${kM:.3f}$"])
-    write("kappa", "rrrr", ["$N$", "$\\kappa(\\Kchi)$", "$\\kappa_P$", "$\\kappa(\\tilde{\\mat{M}})$"], rows)
-    print(f"       alpha = 16/3 = {ALPHA:.2f}; ratios per doubling: "
-          + ", ".join(f"{x:.2f}" for x in ratios))
-
-
-# ==========================================================================
-#  Table 2 (tab:be-M): encoding of Mtilde from the gate-level circuit
+#  tab:be-M: encoding of Mtilde from the gate-level circuit
 # ==========================================================================
 def tab_be_M() -> None:
     rows = []
@@ -103,11 +79,11 @@ def tab_be_M() -> None:
 
 
 # ==========================================================================
-#  Table 3 (tab:inverse): the preconditioned inverse on four sources
+#  tab:inverse: the preconditioned inverse on four sources
 # ==========================================================================
 def tab_inverse() -> None:
     res = residual(RHO, EPS)
-    rows, dev, pcg = [], {24: 0.0, 32: 0.0}, []
+    rows, dev = [], {24: 0.0, 32: 0.0}
     for N in (8, 16, 32, 64):
         r = inverse_case(N, RHO, EPS, F_bits=(24, 32) if N <= 16 else ())
         e = r["errs"]
@@ -115,20 +91,17 @@ def tab_inverse() -> None:
         assert abs(e["worst"] / res - 1) < 1e-3, (N, e["worst"], res)   # "equals the residual"
         for Fb, ec in r["circuit"].items():
             dev[Fb] = max(dev[Fb], max(abs(ec[k] - e[k]) for k in LOADS))
-        p = max(r["pcg"].values())
-        pcg.append(p)
-        rows.append([f"${N}$", f"${r['d']}$", f"${p}$"] + [sci(e[k]) for k in LOADS])
+        rows.append([f"${N}$", f"${r['d']}$"] + [sci(e[k]) for k in LOADS])
     assert dev[32] < 1e-8 and dev[24] < 2e-7, dev
-    write("inverse", "rrrrrrr",
-          ["$N$", "$d$", "PCG", "smooth", "random", "cell", "worst"], rows)
+    write("inverse", "rrrrrr",
+          ["$N$", "$d$", "smooth", "random", "cell", "worst"], rows)
     print(f"       residual of q_t = {res:.3e}; circuit deviation F=24: {dev[24]:.1e}, "
-          f"F=32: {dev[32]:.1e}; PCG iterations {min(pcg)} to {max(pcg)}")
+          f"F=32: {dev[32]:.1e}")
 
 
 TABLES = {
-    "kappa":   (tab_kappa,   "Table 1, condition numbers (tab:kappa)"),
-    "be_M":    (tab_be_M,    "Table 2, encoding of Mtilde (tab:be-M)"),
-    "inverse": (tab_inverse, "Table 3, the inverse on four sources (tab:inverse)"),
+    "be_M":    (tab_be_M,    "encoding of Mtilde from the gate-level circuit (tab:be-M, Sec. 5.3)"),
+    "inverse": (tab_inverse, "the inverse on four sources (tab:inverse, Sec. 5.4)"),
 }
 
 

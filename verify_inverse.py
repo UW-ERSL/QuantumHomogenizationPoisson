@@ -1,13 +1,12 @@
-"""verify_inverse -- the preconditioned inverse applied to specific heat sources (Sec. 4).
+"""verify_inverse -- the preconditioned inverse applied to specific heat sources (Sec. 5.4).
 
     python verify_inverse.py           # about 2 minutes
 
 u_Q = sigma_max^{-1} (K^+)^{1/2} q_t(Mtilde) (K^+)^{1/2} f, with q_t the odd
-QSVT polynomial of Sec. 3.5, is compared with the finite element solution
-u = (K^chi)^+ f in the energy norm of K^chi. Eq. (energy-error) bounds the
-relative error by eps_p for every source with zero mean. FFT-PCG
-(preconditioner K^+) is run to the same energy-norm error for comparison.
-Square inclusion, v_f = 1/4, sigma_max = 1.
+QSVT polynomial of Sec. 3.7, is compared with the finite element solution
+u = (K^chi)^+ f from a sparse direct solve, in the energy norm of K^chi.
+Eq. (energy-error) bounds the relative error by eps_p for every source with
+zero mean. Square inclusion, v_f = 1/4, sigma_max = 1.
 """
 import numpy as np
 import scipy.sparse as sp
@@ -68,16 +67,6 @@ def energy_error(Kc, u, x):
     return np.sqrt(e @ (Kc @ e) / (u @ (Kc @ u)))
 
 
-def pcg_iterations(Kc, Kinv, f, u, eps):
-    x = np.zeros_like(f); r = f.copy(); z = Kinv(r); p = z.copy(); rz = r @ z
-    for it in range(1, 10 ** 5):
-        Ap = Kc @ p; al = rz / (p @ Ap)
-        x += al * p; r -= al * Ap
-        if energy_error(Kc, u, x) <= eps:
-            return it
-        z = Kinv(r); rz, rz0 = r @ z, rz; p = z + (rz / rz0) * p
-
-
 def apply_inverse(q, Kih, lam, U, sbar, f):
     lt = np.where(np.abs(lam) > 1e-9, lam, sbar)                # spectrum of Mtilde
     return Kih(U @ (q(lt) * (U.conj().T @ Kih(f))))
@@ -87,29 +76,27 @@ LOADS = ("smooth", "random", "cell", "worst")
 
 
 def inverse_case(N, rho, eps, F_bits=()):
-    """Energy-norm errors of u_Q for the four sources, the QSVT degree d, the
-    largest PCG iteration count, and the errors with Mtilde from the
-    gate-level circuit for each F in F_bits."""
+    """Energy-norm errors of u_Q for the four sources, the QSVT degree d, and
+    the errors with Mtilde from the gate-level circuit for each F in F_bits."""
     q, d = q_poly(rho, eps)
     A = assemble(N).tocsr()
     chi = square_chi(N)
     St = np.repeat(np.where(chi == 1, 1.0, 1 / rho), 8)
     Kc = (A.T @ sp.diags(St) @ A).tocsr()                       # K^chi / sigma_max
-    Kih, Kh, Kinv = (k_function(g, N) for g in (lambda e: e ** -0.5, np.sqrt, lambda e: 1 / e))
+    Kih, Kh = (k_function(g, N) for g in (lambda e: e ** -0.5, np.sqrt))
     M = Kih(Kc @ Kih(np.eye(N * N)))
     lam, U = np.linalg.eigh((M + M.T) / 2)
     sbar = chi.mean() + (1 - chi.mean()) / rho
     F_ = sources(N, A, St, Kh, lam, U)
     sols = {k: fe_solve(Kc, f) for k, f in F_.items()}
     errs = {k: energy_error(Kc, sols[k], apply_inverse(q, Kih, lam, U, sbar, F_[k])) for k in LOADS}
-    pcg = {k: pcg_iterations(Kc, Kinv, F_[k], sols[k], eps) for k in LOADS}
     circ = {}
     for Fb in F_bits:
         Mc, chk = circuit_block(N, rho, Fb)
         lc, Uc = np.linalg.eigh((Mc + Mc.conj().T) / 2)
         circ[Fb] = {k: energy_error(Kc, sols[k], apply_inverse(q, Kih, lc, Uc, sbar,
                                                                F_[k].astype(complex)).real) for k in LOADS}
-    return dict(d=d, pcg=pcg, errs=errs, circuit=circ)
+    return dict(d=d, errs=errs, circuit=circ)
 
 
 def residual(rho, eps):
@@ -123,13 +110,12 @@ if __name__ == "__main__":
     eps, rho = 1e-6, 10.0
     print("----- output --------------------------------------------------")
     print(f"residual of q_t: {residual(rho, eps):.3e}")
-    print(f"{'N':>3} {'F':>4} {'d':>5} {'PCG':>9}  " + "  ".join(f"{k:>9}" for k in LOADS))
+    print(f"{'N':>3} {'F':>4} {'d':>5}  " + "  ".join(f"{k:>9}" for k in LOADS))
     for N in (8, 16, 32, 64):
         r = inverse_case(N, rho, eps, F_bits=(24, 32) if N <= 16 else ())
-        pc = f"{min(r['pcg'].values())}-{max(r['pcg'].values())}"
-        print(f"{N:3d} {'-':>4} {r['d']:5d} {pc:>9}  " +
+        print(f"{N:3d} {'-':>4} {r['d']:5d}  " +
               "  ".join(f"{r['errs'][k]:9.2e}" for k in LOADS), flush=True)
         for Fb, e in r["circuit"].items():
-            print(f"{N:3d} {Fb:4d} {r['d']:5d} {'':>9}  " +
+            print(f"{N:3d} {Fb:4d} {r['d']:5d}  " +
                   "  ".join(f"{e[k]:9.2e}" for k in LOADS), flush=True)
     print("---------------------------------------------------------------")

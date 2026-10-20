@@ -191,6 +191,7 @@ class IsometryCircuit:
         c = Circuit()
         self.c = c
         self.k1, self.k2 = c.alloc(n), c.alloc(n)
+        self._marks = [("start", dict(c.counts()), c.n)]
         K = cordic_gain(I)
         Fz, wz = F, F + 1
 
@@ -206,6 +207,7 @@ class IsometryCircuit:
         add_view(c, zp, place(self.k2))
         copy_view(c, place(self.k1), zm)
         add_view(c, zm, place(self.k2), neg=True)
+        self._marks.append(("load", dict(c.counts()), c.n))
 
         cs = {}
         for name, z in (("p", zp), ("m", zm)):
@@ -217,6 +219,7 @@ class IsometryCircuit:
             cordic_rotate(c, x, y, z, I, F, Fz)
             cs[name] = (x, y)                    # (cos, sin)
         (xp, yp), (xm, ym) = cs["p"], cs["m"]
+        self._marks.append(("cos_sin", dict(c.counts()), c.n))
 
         from .revcirc import shr
         a, b, zeta = c.alloc(w), c.alloc(w), c.alloc(w)
@@ -224,6 +227,7 @@ class IsometryCircuit:
         copy_view(c, shr(yp, 1), b); add_view(c, b, shr(ym, 1), neg=True)
         copy_view(c, shr(xm, 1), zeta); add_view(c, zeta, shr(xp, 1), neg=True)
         self.abz = (a, b, zeta)
+        self._marks.append(("sum_to_product", dict(c.counts()), c.n))
 
         # omega = atan2(b, a): quadrant flag, then vectoring (a <- K r)
         fo = c.alloc(1)[0]
@@ -231,11 +235,14 @@ class IsometryCircuit:
         for j in range(w):
             c.cx(fo, a[j]); c.cx(fo, b[j])       # (a, b) <- ~(a, b) ~ -(a, b)
         domega = cordic_vector(c, a, b, I)
+        self._marks.append(("omega", dict(c.counts()), c.n))
         # tau = atan2(sqrt(2/3) zeta, r): vectoring on (K r, sqrt(2/3) K zeta)
         y = const_mult(c, zeta, G_TAU * K, F)
+        self._marks.append(("const_product", dict(c.counts()), c.n))
         x = c.alloc(w)
         copy_view(c, a, x)
         dtau = cordic_vector(c, x, y, I)
+        self._marks.append(("tau", dict(c.counts()), c.n))
 
         # zero-mode flag
         kk = self.k1 + self.k2
@@ -249,6 +256,7 @@ class IsometryCircuit:
         for q in kk:
             c.x(q)
         self.flag0 = acc
+        self._marks.append(("zero_flag", dict(c.counts()), c.n))
         self.fomega, self.domega, self.dtau = fo, domega, dtau
         self.n_arith = len(c.gates)
         self.arith_counts = c.counts()
@@ -317,6 +325,15 @@ class IsometryCircuit:
         return Q, dict(work_bits_left_set=dirty, inputs_restored=restored)
 
     # -- resources -------------------------------------------------------------
+    def stage_counts(self):
+        """Toffoli gates (compute + uncompute, as in resources) and work-register
+        qubits added, for each stage of the angle oracle (Sec. 4.5, tab:uv-cost)."""
+        tof = lambda c: 2 * c.get("ccx", 0) + c.get("and", 0) + c.get("andu", 0)
+        out = []
+        for (_, c0, n0), (tag, c1, n1) in zip(self._marks, self._marks[1:]):
+            out.append(dict(stage=tag, toffoli=tof(c1) - tof(c0), qubits=n1 - n0))
+        return out
+
     def resources(self):
         ar = self.arith_counts
         nI = self.I

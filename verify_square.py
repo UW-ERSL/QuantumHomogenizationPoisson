@@ -1,4 +1,4 @@
-"""verify_square -- numerical verification (Sec. 4): square inclusion (v_f = 1/4), scalar conduction.
+"""verify_square -- numerical verification (Secs. 3.6 and 5.3): square inclusion (v_f = 1/4), scalar conduction.
 
     python verify_square.py            # a few minutes (N = 64 is dense)
 

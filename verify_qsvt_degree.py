@@ -1,4 +1,4 @@
-"""verify_qsvt_degree -- degree and sup norm of the odd QSVT inverse polynomial (Sec. 3.5); independent of the PDE.
+"""verify_qsvt_degree -- degree and sup norm of the odd QSVT inverse polynomial (Sec. 3.7); independent of the PDE.
 
     python verify_qsvt_degree.py       # a few seconds
 

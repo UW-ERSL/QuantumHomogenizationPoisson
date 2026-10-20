@@ -2,7 +2,7 @@
 
     python makeFigures.py              # all figures, about 6 minutes
     python makeFigures.py circuits     # only the two circuit figures, seconds
-    python makeFigures.py isometry     # only the isometry-cost figure (Sec. 3.4), about 4 minutes
+    python makeFigures.py isometry     # only the isometry-cost figure (App. A), about 4 minutes
 
 figs/readout_circuit.pdf (fig:readout)  the readout circuit of verify_qiskit_qsvt.py, N = 4
 figs/qsvt_circuit.pdf    (fig:qsvt)     the QSVT sequence U_q of verify_qiskit_qsvt.py, d = 3
@@ -197,7 +197,7 @@ def draw_circuits():
 
 
 def draw_isometry():
-    """figs/isometry_cost.pdf: encoding error of U_V (Sec. 3.4); checks the Toffoli fit of Sec. 5.5."""
+    """figs/isometry_cost.pdf: encoding error of U_V (App. A); checks the Toffoli fit of App. A."""
     from verify_full_unitary import C_BOUND, full_error
     from quantuminversionpoisson.isometry_circuit import IsometryCircuit
     Fs = (12, 16, 20, 24, 28, 32)

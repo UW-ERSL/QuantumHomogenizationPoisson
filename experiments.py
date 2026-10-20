@@ -1,7 +1,7 @@
-"""experiments.py -- the numerical experiments of Sec. 5.
+"""experiments.py -- the numerical experiments of Sec. 5 (block encoding and its inverse).
 
     python experiments.py              # all experiments, tables/ and figs/
-    python experiments.py mesh         # one experiment: mesh, geometry, contrast, accuracy, crossover
+    python experiments.py mesh         # one experiment: mesh, geometry, resources
 
 Three dyadic cells, each with a material oracle R_chi of O(1) gates:
 
@@ -26,12 +26,13 @@ import scipy.sparse.linalg as spla
 
 from quantuminversionpoisson.fourier_symbol import symbol
 from quantuminversionpoisson.isometry_circuit import IsometryCircuit
-from verify_inverse import k_function
-from verify_readout import ae_samples
+from numpy.polynomial import chebyshev as Cheb
+
+from verify_inverse import k_function, q_poly
 from verify_square import _B, _CORNERS, assemble
 
 ALPHA = 16 / 3            # subnormalization of the encoding of K^chi / sigma_max (Table 2 baseline)
-DELTA_CONST = 6           # delta <= 6 N 2^-F (Sec. 3.4)
+DELTA_CONST = 6           # delta <= 6 N 2^-F (Sec. 4.4)
 GEOMETRIES = ("square", "cross", "laminate")
 os.makedirs("tables", exist_ok=True)
 os.makedirs("figs", exist_ok=True)
@@ -166,14 +167,12 @@ def A_matrix(N):
 
 
 class Cell:
-    """Two-phase cell: N, rho, geometry; Mtilde, K^chi and the cell problem, matrix-free."""
+    """Two-phase cell: N, rho, geometry; Mtilde, K^chi and the cell-problem source, matrix-free."""
 
-    def __init__(self, name, N, rho, dual=False):
-        self.name, self.N, self.rho, self.dual = name, N, rho, dual
+    def __init__(self, name, N, rho):
+        self.name, self.N, self.rho = name, N, rho
         self.A = A_matrix(N)
         self.chi = chi(name, N)
-        if dual:                                       # phases interchanged: sigma* = sigma_min sigma_max / sigma
-            self.chi = 1.0 - self.chi
         self.vf = self.chi.mean()
         self.St = np.repeat(np.where(self.chi == 1, 1.0, 1 / rho), 8)       # Sigma / sigma_max
         self.sbar = self.vf + (1 - self.vf) / rho
@@ -197,49 +196,6 @@ class Cell:
         v = np.zeros(8 * self.n)
         v[(a - 1)::2] = 1 / (2 * self.N)
         return v
-
-    def psi(self, a):                                  # V^T Sigmatilde ehat_a
-        return self.Kih(self.A.T @ (self.St * self.ehat(a)))
-
-    def solve_Mt(self, b, tol=1e-13):
-        x, info = spla.cg(self.Mt_op(), b, rtol=tol, maxiter=2000)
-        assert info == 0
-        return x
-
-    def fe_sigma(self, tol=1e-12):
-        """sigma^H / sigma_max from the cell problem K^chi v = -f by FFT-PCG (Moulinec-Suquet
-        preconditioner K^+), independently of the quadratic form."""
-        S = np.zeros((2, 2))
-        grads = []
-        for a in (1, 2):
-            e = self.ehat(a)
-            f = -(self.A.T @ (self.St * e))
-            v, it = pcg(self.Kc, self.Kinv, f, tol)
-            grads.append(e + self.A @ v)
-        for a in range(2):
-            for b in range(2):
-                S[a, b] = grads[a] @ (self.St * grads[b])
-        return S
-
-    def qf_sigma(self):
-        """sigma^H / sigma_max = sbar I - [psi_a^T Mtilde^{-1} psi_b] (Eq. sigmaH-pre)."""
-        ps = [self.psi(a) for a in (1, 2)]
-        sol = [self.solve_Mt(p) if np.linalg.norm(p) > 0 else 0 * p for p in ps]
-        c = np.array([[ps[a] @ sol[b] for b in range(2)] for a in range(2)])
-        return self.sbar * np.eye(2) - c, ps, sol
-
-
-def dual_tensor(s, rho):
-    """Keller-Dykhne (2D): sigma^{H*}/sigma_max of the interchanged-phase cell from s = sigma^H/sigma_max,
-    s* = R s^{-1} R^T / rho with R the rotation by 90 degrees (axes swapped for a diagonal s)."""
-    R = np.array([[0.0, 1.0], [-1.0, 0.0]])
-    return R @ np.linalg.inv(s) @ R.T / rho
-
-
-def prefer_dual(rho, s_aa):
-    """Sec. 4.4: the readout amplitudes are a = sigma^H/sigma_max (primal) and a* = sigma_min/sigma^H (dual),
-    with a a* = 1/rho; the cost is proportional to 1/a, so the dual is cheaper iff sigma^H < sqrt(sigma_min sigma_max)."""
-    return s_aa < rho ** -0.5
 
 
 def pcg(Aop, Pop, b, tol, x_ref=None, energy_tol=None, maxiter=5000):
@@ -292,99 +248,82 @@ def lambda_min_Kc(cell, tol=1e-9, seed=0):
 
 
 # ==========================================================================
-# 3. the QSVT polynomial applied matrix-free (least-squares readout)
+# 3. the QSVT inverse polynomial applied matrix-free (Sec. 3.7)
 # ==========================================================================
-# sigma^H_11 / sigma_max = g^T (I - Pi) g, g = Sigma~^{1/2} ehat_1, Pi the projector onto the range of
-# Vt = Sigma~^{1/2} V.  The even polynomial f(x) = (r_t(x^2) + e_t) / (1 + e_t), r_t the degree-t
-# Chebyshev polynomial on [1/rho, 1] with r_t(0) = 1 and e_t = 1 / T_t(z0) = max |r_t|, satisfies
-# f(0) = 1 and 0 <= f <= 1 on [-1, 1]; each of its d = 2 t queries is one U_V or U_V^dagger.
-def qsvt_degree(rho, eps_p):
-    """Smallest t with e_t <= eps_p; the QSVT degree is d = 2 t."""
-    a = 1 / rho
-    z0 = (1 + a) / (1 - a)
-    return int(np.ceil(np.arccosh(1 / eps_p) / np.arccosh(z0)))
+# q_t is the odd polynomial of Sec. 2.4 at kappa = rho with t = ceil(rho/2 ln(2/eps_p)) (Prop. qsvt-poly),
+# degree d = 2t - 1. It is applied to Mtilde by the Clenshaw recurrence on its Chebyshev interpolant of
+# degree d, which equals q_t up to rounding, with d applications of Mtilde.
+_PLAN = {}
 
 
-def apply_f(cell, eps_p, a=1):
-    """Returns g, f(Vt) g, t and e_t, with B = Vt Vt^T applied by the Chebyshev recurrence
-    (t applications of B, that is d = 2 t applications of Vt or Vt^T)."""
-    rho = cell.rho
-    al = 1 / rho
-    z0 = (1 + al) / (1 - al)
-    t = qsvt_degree(rho, eps_p)
-    sq = np.sqrt(cell.St)
-    g = sq * cell.ehat(a)
-    Vt = lambda w: sq * (cell.A @ cell.Kih(w))
-    VtT = lambda u: cell.Kih(cell.A.T @ (sq * u))
-    Z = lambda u: ((1 + al) * u - 2 * Vt(VtT(u))) / (1 - al)
-    T0, T1 = g, Z(g)
-    for _ in range(t - 1):
-        T0, T1 = T1, 2 * Z(T1) - T0
-    e = 1 / np.cosh(t * np.arccosh(z0))
-    r = T1 * e                                                         # r_t(B) g
-    return g, (r + e * g) / (1 + e), t, e
+def inverse_plan(rho, eps_p):
+    """q_t, its degree d, its Chebyshev coefficients, and C = max_[-1,1] |q_t| (Eq. qsvt-norm)."""
+    if (rho, eps_p) not in _PLAN:
+        q, d = q_poly(rho, eps_p)
+        x = np.linspace(1e-9, 1.0, 2_000_001)
+        C = float(np.abs(q(x)).max())
+        _PLAN[rho, eps_p] = (q, d, Cheb.chebinterpolate(q, d), C)
+    return _PLAN[rho, eps_p]
 
 
-def poly_readout(cell, eps_p, a=1):
-    """sigma^H_aa / sigma_max by the QSVT polynomial: s = (1 + e_t) A - e_t sbar with A = g^T f(Vt) g >= 0.
-    Returns the estimate, A, the degree d and e_t."""
-    g, fg, t, e = apply_f(cell, eps_p, a)
-    A = float(g @ fg)
-    return (1 + e) * A - e * float(g @ g), A, 2 * t, e
+def encoding_bits(N, rho, eps_p):
+    """Sec. 4.4: delta = eps_p / (2 d C), so that the encoding error adds at most eps_p to the energy-norm
+    error, and F = ceil(log2(6 N / delta)) by Eq. (delta-bound)."""
+    _, d, _, C = inverse_plan(rho, eps_p)
+    delta = eps_p / (2 * d * C)
+    return delta, int(np.ceil(np.log2(DELTA_CONST * N / delta)))
 
 
-def pcg_sigma_iterations(cell, tol, a=1):
-    """FFT-PCG iterations until sigma_k - sigma^H <= tol (the error of the energy functional)."""
-    e = cell.ehat(a)
-    f = -(cell.A.T @ (cell.St * e))
-    vref, _ = pcg(cell.Kc, cell.Kinv, f, 1e-13)
-    gr = e + cell.A @ vref
-    sH = gr @ (cell.St * gr)
-    b = f - f.mean()
-    x = np.zeros_like(b); r = b.copy(); z = cell.Kinv(r); z -= z.mean(); p = z.copy(); rz = r @ z
-    for it in range(1, 5001):
-        Ap = cell.Kc(p); al = rz / (p @ Ap); x += al * p; r -= al * Ap
-        gk = e + cell.A @ x
-        if abs(gk @ (cell.St * gk) - sH) <= tol:
-            return it
-        z = cell.Kinv(r); z -= z.mean(); rzn = r @ z; p = z + (rzn / rz) * p; rz = rzn
-    raise RuntimeError("pcg did not converge")
+def apply_q(cell, coef, b):
+    """q_t(Mtilde) b by the Clenshaw recurrence."""
+    b1 = np.zeros_like(b); b2 = np.zeros_like(b)
+    for c in coef[:0:-1]:
+        b1, b2 = 2 * cell.Mt(b1) - b2 + c * b, b1
+    return cell.Mt(b1) - b2 + coef[0] * b
+
+
+def inverse_error(cell, eps_p, a=1):
+    """Relative energy-norm error of u_Q = (K^+)^{1/2} q_t(Mtilde) (K^+)^{1/2} f against the cell solution,
+    for the cell-problem source f of the macroscopic gradient e_a (Eq. energy-error), sigma_max = 1."""
+    _, d, coef, _ = inverse_plan(cell.rho, eps_p)
+    f = -(cell.A.T @ (cell.St * cell.ehat(a)))
+    u, _ = pcg(cell.Kc, cell.Kinv, f, 1e-13)
+    uq = cell.Kih(apply_q(cell, coef, cell.Kih(f)))
+    e = uq - u
+    return float(np.sqrt((e @ cell.Kc(e)) / (u @ cell.Kc(u)))), d
 
 
 # ==========================================================================
 # 4. resource counts
 # ==========================================================================
+_UV = {}
+
+
 def uv_counts(N, F):
-    """Toffoli count, controlled rotations and qubits of one application of U_V."""
-    n = int(np.log2(N))
-    r = IsometryCircuit(n=n, F=F).resources()
-    return dict(toffoli=r["toffoli_total"], cordic_rot=2 * F + 1 + 3,
-                qft_rot=2 * 2 * n * (n - 1) // 2, qubits=r["wires"])
+    """Toffoli count, controlled rotations and qubits of one application of U_V (gate level, cached)."""
+    if (N, F) not in _UV:
+        n = int(np.log2(N))
+        r = IsometryCircuit(n=n, F=F).resources()
+        _UV[N, F] = dict(toffoli=r["toffoli_total"], cordic_rot=2 * F + 1 + 3,
+                         qft_rot=2 * 2 * n * (n - 1) // 2, phase_rot=r["phase_gates"],
+                         qubits=r["wires"])
+    return _UV[N, F]
 
 
-def readout_resources(name, N, rho, eps, sigma_ratio=1.0, dual=False):
-    """Sec. 4.3 at error eps relative to the Voigt bound (divided by sigma_ratio for an error
-    relative to sigma^H): eps_p = eps_eff / 3, F from 6 N 2^-F, M = ceil(3 pi alpha / (eps_eff sbar)),
-    one U_V and one controlled R_chi per query."""
-    eps_eff = eps / sigma_ratio
-    eps_p = eps_eff / 3
-    d = 2 * qsvt_degree(rho, eps_p)
-    aq = 1 + eps_p
-    vf = chi(name, 16).mean()
-    if dual:                                   # complemented indicator: R_{1-chi} = -R_chi, same Toffoli count
-        vf = 1 - vf
-    sbar = vf + (1 - vf) / rho
-    F = int(np.ceil(np.log2(DELTA_CONST * N * 3 * d * aq / eps_eff)))
-    M = int(np.ceil(3 * np.pi * aq / (eps_eff * sbar)))
-    queries = (2 * M - 1) * d
+def inverse_resources(name, N, rho, eps_p):
+    """Sec. 3.7: one query to U_M is U_V, U_Sigma (one controlled R_chi), U_V^dag; d queries."""
+    _, d, _, C = inverse_plan(rho, eps_p)
+    delta, F = encoding_bits(N, rho, eps_p)
     uv = uv_counts(N, F)
-    orc = check_oracle(name)
-    per_q_tof = uv["toffoli"] + orc["toffoli"]
-    per_q_rot = (uv["cordic_rot"] + uv["qft_rot"]) + 2          # + the two Ry of the Sigma^{1/2} LCU
-    return dict(name=name, N=N, rho=rho, eps=eps, sigma_ratio=sigma_ratio, dual=dual, F=F, d=d,
-                alpha_q=aq, sbar=sbar, M=M, queries=queries, toffoli_per_query=per_q_tof,
-                rot_per_query=per_q_rot, oracle_toffoli=orc["toffoli"],
-                toffoli_total=float(queries) * per_q_tof, qubits=uv["qubits"] + 5)
+    t_rchi = check_oracle(name)["toffoli"]
+    per_query = 2 * uv["toffoli"] + t_rchi
+    # two U_V (CORDIC rotations, QFT controlled phases, the 2n phase gates of
+    # e^{i(phi1+phi2)}), and the two Ry of U_Sigma
+    rot = 2 * (uv["cordic_rot"] + uv["qft_rot"] + uv["phase_rot"]) + 2
+    return dict(name=name, N=N, rho=rho, eps_p=eps_p, d=d, C=C, delta=delta, F=F,
+                toffoli_uv=uv["toffoli"], toffoli_per_query=per_query, rot_per_query=rot,
+                toffoli_total=float(d) * per_query,
+                qubits=uv["qubits"] + 3)    # + the U_Sigma ancilla, the flag qubit, the QSVT ancilla
 
 
 # ==========================================================================
@@ -440,7 +379,7 @@ RESULTS = {}
 # ==========================================================================
 # 6. Experiment 1: mesh independence
 # ==========================================================================
-def exp_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=10.0, eps_p=1e-6, eps=1e-2):
+def exp_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=10.0, eps_p=1e-6):
     rows = []
     for g in GEOMETRIES:
         for N in Ns:
@@ -448,37 +387,32 @@ def exp_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=10.0, eps_p=1e-6, eps=1e-
             c = Cell(g, N, rho)
             lo, hi = extreme_eigs(c)
             lk = lambda_min_Kc(c)
-            sFE = c.fe_sigma()[0, 0]
-            s_est, A, d, e_t = poly_readout(c, eps_p)
-            err = abs(s_est - sFE) / c.sbar                      # error of g^T r_t(B) g, in units of sbar
-            assert A >= 0
-            # FFT-PCG from v = 0 to the same error in sigma^H (the energy error of the cell solution)
-            it = pcg_sigma_iterations(c, max(err, 1e-12) * c.sbar)
-            res = readout_resources(g, N, rho, eps)
+            err, d = inverse_error(c, eps_p)
+            delta, F = encoding_bits(N, rho, eps_p)
             lamK = 2 * (1 - np.cos(2 * np.pi / N))
             r = dict(geometry=g, N=N, kappa_M=1 / lo, lam_max=hi, kappa_Kc=ALPHA / lk,
-                     kappa_P=ALPHA * rho / lamK, poly_err=err, d=d, pcg_it=it,
-                     toffoli_per_query=res["toffoli_per_query"], F=res["F"],
-                     queries=res["queries"], seconds=time.time() - t0)
+                     kappa_P=ALPHA * rho / lamK, inv_err=err, d=d, F=F,
+                     toffoli_uv=uv_counts(N, F)["toffoli"], seconds=time.time() - t0)
             rows.append(r)
             print(f"mesh {g:8s} N={N:5d} kappa(M)={r['kappa_M']:.10f} lmax={hi:.12f} "
-                  f"kappa(Kc)={r['kappa_Kc']:.4g} kappa_P={r['kappa_P']:.4g} err={err:.3e} d={d} "
-                  f"pcg={it} F={res['F']} tof/q={r['toffoli_per_query']:,} [{r['seconds']:.0f} s]",
-                  flush=True)
+                  f"kappa(Kc)={r['kappa_Kc']:.4g} kappa_P={r['kappa_P']:.4g} inverse err={err:.3e} d={d} "
+                  f"F={F} Toffoli/U_V={r['toffoli_uv']:,} [{r['seconds']:.0f} s]", flush=True)
     RESULTS["mesh"] = rows
     # ---- assertions: every claim of Sec. 5.2
+    _, d0, _, _ = inverse_plan(rho, eps_p)
     for r in rows:
         assert abs(r["kappa_M"] - rho) < 1e-6 * rho and abs(r["lam_max"] - 1) < 1e-8, r   # kappa = rho
-        assert r["poly_err"] <= eps_p and r["d"] == 46, r                                  # flat at d = 46
+        assert r["inv_err"] <= eps_p and r["d"] == d0, r                                   # within eps_p, flat d
         assert r["kappa_P"] > r["kappa_Kc"], r
     for g in GEOMETRIES:
         k = [r["kappa_Kc"] for r in rows if r["geometry"] == g]
         ratios = np.array(k[1:]) / np.array(k[:-1])
         assert np.all(ratios > 3.5) and abs(ratios[-1] - 4) < 0.02, (g, ratios)          # Theta(N^2)
-    its = [r["pcg_it"] for r in rows]
-    tof = {r["N"]: r["toffoli_per_query"] for r in rows if r["geometry"] == "square"}
-    print(f"mesh: PCG iterations {min(its)}-{max(its)}; Toffolis per query "
-          f"{tof[Ns[0]]:,} (N={Ns[0]}) to {tof[Ns[-1]]:,} (N={Ns[-1]})")
+    tof = {r["N"]: r["toffoli_uv"] for r in rows if r["geometry"] == "square"}
+    Fs = {r["N"]: r["F"] for r in rows if r["geometry"] == "square"}
+    errs = [r["inv_err"] for r in rows]
+    print(f"mesh: inverse error {min(errs):.2e} to {max(errs):.2e} (eps_p = {eps_p:g}, d = {d0}); "
+          f"F = {Fs[Ns[0]]} to {Fs[Ns[-1]]}; Toffolis per U_V {tof[Ns[0]]:,} (N={Ns[0]}) to {tof[Ns[-1]]:,} (N={Ns[-1]})")
 
     plt = plt_setup()
     fig, ax = plt.subplots(1, 3, figsize=(6.5, 2.35))
@@ -487,7 +421,7 @@ def exp_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=10.0, eps_p=1e-6, eps=1e-
         ls, col, mk = STYLE[g]
         ax[0].loglog(ndof(g), [r["kappa_Kc"] for r in rows if r["geometry"] == g], ls, color=col,
                      marker=mk, ms=3, lw=1, label=g)
-        ax[1].loglog(ndof(g), [r["poly_err"] for r in rows if r["geometry"] == g], ls, color=col,
+        ax[1].loglog(ndof(g), [r["inv_err"] for r in rows if r["geometry"] == g], ls, color=col,
                      marker=mk, ms=3, lw=1, label=g)
     ax[0].loglog(ndof("square"), [r["kappa_M"] for r in rows if r["geometry"] == "square"], "-",
                  color="k", lw=2.2, label=r"$\kappa(\tilde{\mathbf{M}})$, all")
@@ -498,12 +432,12 @@ def exp_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=10.0, eps_p=1e-6, eps=1e-
     ax[0].set_title(r"(a) $\kappa(\mathbf{K}^{\chi})$ and $\kappa(\tilde{\mathbf{M}})$", fontsize=9)
     ax[1].axhline(eps_p, color="0.5", lw=0.8, ls="--")
     ax[1].text(ndof("square")[0], eps_p * 1.25, r"$\epsilon_p$", fontsize=8)
-    ax[1].set_ylim(1e-8, 1e-5); ax[1].set_xlabel(r"$N_{\mathrm{dof}}$")
-    ax[1].set_ylabel(r"$|\hat\sigma - \sigma^H/\sigma_{\max}|/\bar\sigma$")
-    ax[1].set_title(f"(b) error of $f$, $d = {rows[0]['d']}$", fontsize=9)
+    ax[1].set_ylim(1e-7, 1e-5); ax[1].set_xlabel(r"$N_{\mathrm{dof}}$")
+    ax[1].set_ylabel("relative energy-norm error")
+    ax[1].set_title(f"(b) inverse, cell source, $d = {d0}$", fontsize=9)
     ax[2].semilogx(ndof("square"), [tof[N] / 1e3 for N in Ns], "-o", color="k", ms=3, lw=1)
-    ax[2].set_xlabel(r"$N_{\mathrm{dof}}$"); ax[2].set_ylabel(r"Toffoli gates per query ($10^3$)")
-    ax[2].set_title(r"(c) cost of one query to $\mathcal{U}_V$", fontsize=9)
+    ax[2].set_xlabel(r"$N_{\mathrm{dof}}$"); ax[2].set_ylabel(r"Toffoli gates ($10^3$)")
+    ax[2].set_title(r"(c) one application of $\mathcal{U}_V$", fontsize=9)
     ax[2].set_ylim(0, None)
     fig.tight_layout(); fig.savefig("figs/mesh.pdf"); print("figs/mesh.pdf")
 
@@ -518,31 +452,16 @@ def exp_geometry(N=256, rhos=(10.0, 1e4)):
         for rho in rhos:
             c = Cell(g, N, rho)
             lo, hi = extreme_eigs(c)
-            S_fe = c.fe_sigma()
-            S_qf, _, _ = c.qf_sigma()
-            vf = c.vf
-            r = dict(geometry=g, rho=rho, vf=vf, oracle_toffoli=orc["toffoli"], kappa_M=1 / lo,
-                     s11=rho * S_fe[0, 0], s22=rho * S_fe[1, 1], s12=rho * S_fe[0, 1],
-                     qf_vs_fe=float(np.abs(S_qf - S_fe).max() / np.abs(S_fe).max()),
-                     ratio11=c.sbar / S_fe[0, 0], ratio22=c.sbar / S_fe[1, 1])
-            if g == "laminate":                       # exact: sigma_11 = Reuss, sigma_22 = Voigt
-                reuss = 1 / (vf / rho + 1 - vf)
-                voigt = vf * rho + 1 - vf
-                r["exact_err"] = max(abs(r["s11"] - reuss) / reuss, abs(r["s22"] - voigt) / voigt)
+            r = dict(geometry=g, rho=rho, vf=c.vf, oracle_toffoli=orc["toffoli"], kappa_M=1 / lo,
+                     lam_min=lo, lam_max=hi)
             rows.append(r)
-            print(f"geometry {g:8s} rho={rho:g} vf={vf:.4f} R_chi Toffolis={orc['toffoli']} "
-                  f"kappa(M)={r['kappa_M']:.8f} s11={r['s11']:.6f} s22={r['s22']:.6f} "
-                  f"s12={r['s12']:.1e} QF-FE={r['qf_vs_fe']:.1e} V/H11={r['ratio11']:.4g}"
-                  + (f" exact err={r['exact_err']:.1e}" if g == "laminate" else ""), flush=True)
+            print(f"geometry {g:8s} rho={rho:g} vf={c.vf:.4f} R_chi Toffolis={orc['toffoli']} "
+                  f"lambda_min*rho={lo * rho:.10f} lambda_max={hi:.12f} kappa(M)/rho={r['kappa_M'] / rho:.8f}",
+                  flush=True)
     RESULTS["geometry"] = rows
     for r in rows:
         assert abs(r["kappa_M"] - r["rho"]) < 1e-5 * r["rho"], r          # kappa = rho, every geometry
-        assert r["qf_vs_fe"] < 1e-8, r                                     # quadratic form = FE
-        assert abs(r["s12"]) < 1e-9 * r["s11"], r                          # no off-diagonal entry
-        if r["geometry"] != "laminate":
-            assert abs(r["s11"] - r["s22"]) < 1e-9 * r["s11"], r           # isotropic
-        else:
-            assert r["exact_err"] < 1e-10, r                               # exact Reuss / Voigt
+        assert abs(r["lam_max"] - 1) < 1e-8, r
     plt = plt_setup()                                        # the three cells at N = 16
     fig, ax = plt.subplots(1, 3, figsize=(5.0, 1.9))
     Nc = 16
@@ -556,254 +475,67 @@ def exp_geometry(N=256, rhos=(10.0, 1e4)):
         a_.set_title(f"{g}, $v_f = {chi(g, Nc).mean():.4g}$".replace("0.2344", "15/64")
                      .replace("0.25", "1/4").replace("0.5", "1/2"), fontsize=8)
     fig.tight_layout(); fig.savefig("figs/cells.pdf"); print("figs/cells.pdf")
-    names = {"square": "square", "cross": "cross", "laminate": "laminate"}
     trows = []
     for r in rows:
-        trows.append([names[r["geometry"]] if r["rho"] == rhos[0] else "",
+        trows.append([r["geometry"] if r["rho"] == rhos[0] else "",
                       f"${r['vf']:.3g}$" if r["rho"] == rhos[0] else "",
                       f"${r['oracle_toffoli']}$" if r["rho"] == rhos[0] else "",
-                      p10(r["rho"]), f"${r['kappa_M'] / r['rho']:.6f}$",
-                      sci(r["s11"], 4), sci(r["s22"], 4), sci(r["qf_vs_fe"], 1),
-                      sci(r["ratio11"], 3)])
+                      p10(r["rho"]), f"${r['lam_min'] * r['rho']:.6f}$", f"${r['lam_max']:.6f}$",
+                      f"${r['kappa_M'] / r['rho']:.6f}$"])
     write_table("geometry", ["geometry", "$v_f$", "$R_\\chi$ Toffoli", "$\\rho$",
-                             "$\\kappa(\\tilde{\\mat{M}})/\\rho$", "$\\sigma^H_{11}/\\sigma_{\\min}$",
-                             "$\\sigma^H_{22}/\\sigma_{\\min}$", "QF vs FE",
-                             "$\\sigma^{\\mathrm{V}}/\\sigma^H_{11}$"], trows, "lrrrrrrrr")
+                             "$\\rho\\,\\lambda_{\\min}$", "$\\lambda_{\\max}$",
+                             "$\\kappa(\\tilde{\\mat{M}})/\\rho$"], trows, "lrrrrrr")
 
 
 # ==========================================================================
-# 8. Experiment 3: contrast
+# 8. Experiment 3: resources of the inverse at N = 1024 (Table resources)
 # ==========================================================================
-def exp_contrast(N_fe=256, N_q=1024, eps=1e-2):
-    """Cancellation factor and readout cost, primal and dual (Keller-Dykhne) side, Sec. 4.4 and 5.3."""
-    rhos = np.unique(np.concatenate([np.logspace(0.25, 4, 16), [10.0, 1e2, 1e3, 1e4]]))
-    keys = (10.0, 1e2, 1e3, 1e4)
-    ratio = {g: [] for g in GEOMETRIES}                    # primal sigma^V / sigma^H_11
-    ratio_d = {g: [] for g in GEOMETRIES}                  # dual sigma*^V / sigma*^H_22
-    ratio_b = {g: [] for g in GEOMETRIES}                  # better of the two sides
-    use_dual = {g: [] for g in GEOMETRIES}
-    duality_err = 0.0
-    for g in GEOMETRIES:
-        for rho in rhos:
-            c, cd = Cell(g, N_fe, rho), Cell(g, N_fe, rho, dual=True)
-            s, sd = c.fe_sigma(), cd.fe_sigma()
-            # Keller-Dykhne: sigma^H* / sigma_max = R (sigma^H/sigma_max)^{-1} R^T / rho
-            duality_err = max(duality_err, np.abs(sd - dual_tensor(s, rho)).max() / sd.max())
-            r1, r2 = c.sbar / s[0, 0], cd.sbar / sd[1, 1]
-            ratio[g].append(r1); ratio_d[g].append(r2)
-            dflag = bool(prefer_dual(rho, s[0, 0]))
-            use_dual[g].append(dflag)
-            ratio_b[g].append(r2 if dflag else r1)
-            assert dflag == (sd[1, 1] > s[0, 0]) or abs(sd[1, 1] / s[0, 0] - 1) < 1e-2, (g, rho, s, sd)  # cost ~ 1/amplitude
-            assert ratio_b[g][-1] <= rho ** 0.5 * 1.01, (g, rho, ratio_b[g][-1])
-        print(f"contrast {g}: primal sigma^V/sigma^H_11 = " +
-              ", ".join(f"{r:.3g}" for r in ratio[g]), flush=True)
-        print(f"contrast {g}: dual   sigma^V/sigma^H_22 = " +
-              ", ".join(f"{r:.3g}" for r in ratio_d[g]), flush=True)
-    print(f"contrast: max duality defect (relative, N={N_fe}) = {duality_err:.2e}")
-    assert duality_err < 1e-2, duality_err
-    res = {}
-    for g in GEOMETRIES:
-        for rho, r1, r2 in zip(rhos, ratio[g], ratio_d[g]):
-            if rho in keys:
-                res[g, rho, "V"] = readout_resources(g, N_q, rho, eps)
-                res[g, rho, "H"] = readout_resources(g, N_q, rho, eps, sigma_ratio=r1)
-                res[g, rho, "D"] = readout_resources(g, N_q, rho, eps, sigma_ratio=r2, dual=True)
-                best = "D" if res[g, rho, "D"]["toffoli_total"] < res[g, rho, "H"]["toffoli_total"] else "H"
-                res[g, rho, "B"] = res[g, rho, best]
-                res[g, rho, "B"]["side"] = best
-    RESULTS["contrast"] = dict(rhos=rhos.tolist(), ratio=ratio, ratio_dual=ratio_d, ratio_best=ratio_b,
-                               use_dual=use_dual, duality_defect=duality_err,
-                               resources={f"{k[0]}|{k[1]}|{k[2]}": v for k, v in res.items()})
-    r = dict(zip(rhos, ratio["square"]))                    # Sec. 4.3 values (primal) are unchanged
-    assert round(r[10.0], 2) == 2.10 and round(r[1e4], -1) == 1440, r
-    assert max(ratio["cross"]) < 2.0, ratio["cross"]
-    for k, v in res.items():
-        print(f"contrast resources {k}: d={v['d']} M={v['M']:.3e} "
-              f"queries={v['queries']:.3e} Toffolis={v['toffoli_total']:.3e} F={v['F']}")
-    # the rule picks the cheaper side whenever the cost ratio is not within the FE/rounding margin
-    for g in GEOMETRIES:
-        for rho in keys:
-            cheaper = "D" if res[g, rho, "D"]["toffoli_total"] < res[g, rho, "H"]["toffoli_total"] else "H"
-            print(f"contrast side {g} rho={rho:g}: cheaper={cheaper} "
-                  f"primal/dual={res[g, rho, 'H']['toffoli_total'] / res[g, rho, 'D']['toffoli_total']:.3g}")
-    trows = []
-    for rho in keys:
-        v = res["square", rho, "V"]
-        trows.append([p10(rho), intx(v["d"]), sci(v["M"], 2), sci(v["queries"], 2),
-                      sci(v["toffoli_total"], 2),
-                      sci(res["square", rho, "H"]["toffoli_total"], 2),
-                      sci(res["square", rho, "B"]["toffoli_total"], 2),
-                      sci(res["cross", rho, "H"]["toffoli_total"], 2),
-                      sci(res["cross", rho, "B"]["toffoli_total"], 2)])
-    write_table("contrast", ["$\\rho$", "$d$", "$M$", "queries", "Toffoli",
-                             "square, $\\sigma^H$", "square, best side",
-                             "cross, $\\sigma^H$", "cross, best side"], trows, "rrrrrrrrr")
+def exp_resources(N=1024, rho=10.0, eps_ps=(1e-3, 1e-6)):
+    rows = [inverse_resources("square", N, rho, e) for e in eps_ps]
+    for v in rows:
+        print(f"resources eps_p={v['eps_p']:g}: d={v['d']} C={v['C']:.3f} (C/rho={v['C'] / rho:.3f}) "
+              f"delta={v['delta']:.2e} F={v['F']} U_V Toffoli={v['toffoli_uv']:,} per query={v['toffoli_per_query']:,} "
+              f"rotations/query={v['rot_per_query']} total={v['toffoli_total']:.3e} qubits={v['qubits']:,}")
+    RESULTS["resources"] = rows
+    trows = [[p10(v["eps_p"]), f"${v['d']}$", f"${v['C']:.1f}$", f"${v['F']}$",
+              intx(v["toffoli_uv"]), intx(v["toffoli_per_query"]), f"${v['rot_per_query']}$",
+              sci(v["toffoli_total"], 2), intx(v["qubits"])] for v in rows]
+    write_table("resources", ["$\\epsilon_p$", "$d$", "$C$", "$F$", "Toffoli/$\\mathcal{U}_V$",
+                              "Toffoli/query", "rotations/query", "Toffoli", "qubits"], trows, "rrrrrrrrr")
 
-    plt = plt_setup()
-    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
-    rr = list(keys)
-    for g in GEOMETRIES:
-        ls, col, mk = STYLE[g]
-        lab = g + (r" ($\sigma^H_{11}$)" if g == "laminate" else "")
-        ax[0].loglog(rhos, ratio[g], ls, color=col, lw=1.2, label=lab)
-        ax[0].loglog(rhos, ratio_b[g], ls, color=col, lw=0.6, alpha=0.9)
-        ax[1].loglog(rr, [res[g, r_, "H"]["toffoli_total"] for r_ in rr], ls, color=col, marker=mk,
-                     ms=3, lw=1.2, label=lab)
-        ax[1].loglog(rr, [res[g, r_, "B"]["toffoli_total"] for r_ in rr], ls, color=col, marker=mk,
-                     ms=3, lw=0.6, mfc="none")
-    ax[1].loglog(rr, [res["square", r_, "V"]["toffoli_total"] for r_ in rr], "-", color="0.8", lw=2.5,
-                 zorder=0, label="relative to Voigt")
-    ax[0].loglog(rhos, rhos ** 0.5, "-", color="0.8", lw=2.5, zorder=0, label=r"bound $\sqrt{\rho}$")
-    ax[0].set_xlabel(r"contrast $\rho$"); ax[0].set_ylabel(r"$\sigma^{\mathrm{V}}/\sigma^H$")
-    ax[0].legend(frameon=False, loc="upper left", fontsize=6.5)
-    ax[0].set_title(r"(a) cancellation: primal (thick), best side (thin)", fontsize=8)
-    ax[1].set_xlabel(r"contrast $\rho$"); ax[1].set_ylabel("Toffoli gates per readout")
-    ax[1].legend(frameon=False, loc="upper left", fontsize=6.5)
-    ax[1].set_title(r"(b) $1\%$ relative error, $N = 1024$: primal (thick), best (thin)", fontsize=8)
-    fig.tight_layout(); fig.savefig("figs/contrast.pdf"); print("figs/contrast.pdf")
+    # tab:uv-cost (Sec. 4.5): one application of U_V at F = 45, by stage of the angle oracle
+    v = rows[-1]
+    F, n = v["F"], int(np.log2(N))
+    from quantuminversionpoisson.isometry_circuit import IsometryCircuit
+    circ = IsometryCircuit(n=n, F=F)
+    st = {x["stage"]: x for x in circ.stage_counts()}
+    tot = sum(x["toffoli"] for x in st.values())
+    work = sum(x["qubits"] for x in st.values())
+    cordic = st["cos_sin"]["toffoli"] + st["omega"]["toffoli"] + st["tau"]["toffoli"]
+    assert tot == v["toffoli_uv"] == 44510 and F == 45
+    assert cordic == 20 * F ** 2 + 48 * F == 42660 and tot - cordic == 1850
+    assert round(100 * cordic / tot) == 96
+    assert work == 5674 and work + 2 * n + 4 == circ.resources()["wires"] == 5698
+    assert v["qubits"] == 5701 and round(100 * work / v["qubits"], 1) == 99.5
+    assert v["rot_per_query"] == 2 * ((2 * F + 4) + 2 * n * (n - 1) + 2 * n) + 2 == 590
+    labels = [("1", "load $\\phi_1 \\pm \\phi_2$: adder and subtractor", "load"),
+              ("2", "cosines and sines: two rotation-mode runs", "cos_sin"),
+              ("3", "sum to product: $a$, $b$, $\\zeta$", "sum_to_product"),
+              ("4", "$\\omega$: vectoring run", "omega"),
+              ("4", "$\\sqrt{2/3}\\,K\\zeta$: constant product", "const_product"),
+              ("4", "$\\tau$: vectoring run", "tau"),
+              ("5", "zero-mode flag", "zero_flag")]
+    lines = ["% generated by experiments.py -- do not edit", "\\begin{tabular}{@{}llrr@{}}", "\\toprule",
+             "stage & operation & Toffoli & qubits\\\\", "\\midrule"]
+    lines += [f"{a} & {b} & {intx(st[k]['toffoli'])} & {intx(st[k]['qubits'])}\\\\" for a, b, k in labels]
+    lines += ["\\midrule", f" & total & {intx(tot)} & {intx(work)}\\\\", "\\bottomrule", "\\end{tabular}"]
+    open("tables/uv_cost.tex", "w").write("\n".join(lines) + "\n")
+    print("tables/uv_cost.tex")
+    RESULTS["uv_cost"] = dict(F=F, N=N, stages=list(st.values()), cordic=cordic, total=tot, work=work)
 
 
 # ==========================================================================
-# 9. Experiment 4: accuracy and resources
-# ==========================================================================
-def exp_accuracy(N=256, rho=10.0, runs=2000, seed=1, N_res=1024):
-    c = Cell("square", N, rho)
-    target = c.fe_sigma()[0, 0]                               # sigma^H / sigma_max
-    epss = [1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4]
-    rows = []
-    rng = np.random.default_rng(seed)
-    for eps in epss:
-        eps_p = eps / 3
-        s_poly, A, d, e_t = poly_readout(c, eps_p)
-        aq = 1 + eps_p
-        M = int(np.ceil(3 * np.pi * aq / (eps * c.sbar)))
-        Ahat = np.sqrt(ae_samples(A ** 2, M, runs, rng))
-        est = lambda Ah: (1 + e_t) * Ah - e_t * c.sbar
-        err = np.abs(est(Ahat) - target) / c.sbar
-        med = np.median(Ahat.reshape(-1, 5), axis=1)
-        r = dict(eps=eps, d=d, alpha_q=aq, M=M, queries=(2 * M - 1) * d,
-                 err_median=float(np.median(err)), err_q=float(np.quantile(err, 8 / np.pi ** 2)),
-                 success=float(np.mean(err <= eps)),
-                 success_median5=float(np.mean(np.abs(est(med) - target) / c.sbar <= eps)),
-                 poly_part=float(abs(s_poly - target) / c.sbar / eps))
-        rows.append(r)
-        print(f"accuracy eps={eps:g}: d={d} alpha={aq:.4g} M={M} queries={r['queries']:.3e} "
-              f"median err/eps={r['err_median'] / eps:.3f} q(8/pi^2)/eps={r['err_q'] / eps:.3f} "
-              f"success={r['success']:.4f} median5={r['success_median5']:.3f} "
-              f"poly/eps={r['poly_part']:.2e}", flush=True)
-    q8 = 1 - 8 / np.pi ** 2                                    # per-run failure bound (Brassard et al.)
-    med5 = 1 - sum(__import__("math").comb(5, k) * q8 ** k * (1 - q8) ** (5 - k) for k in (3, 4, 5))
-    RESULTS["median5_bound"] = med5
-    for r in rows:
-        assert r["success"] >= 8 / np.pi ** 2 and r["success_median5"] >= med5, r
-        assert r["poly_part"] <= 1 / 3 and r["err_q"] <= r["eps"], r     # guaranteed quantile
-    q = np.array([r["queries"] for r in rows]); e = np.array(epss)
-    slope = np.polyfit(np.log(e), np.log(q), 1)[0]
-    print(f"accuracy: queries ~ eps^{slope:.3f}")
-    assert -1.25 < slope < -1.0, slope                         # 1/eps up to logarithms
-    res = [readout_resources("square", N_res, rho, eps) for eps in (1e-2, 1e-3, 1e-4)]
-    RESULTS["accuracy"] = dict(samples=rows, slope=slope, resources=res)
-    trows = []
-    for v in res:
-        trows.append([p10(v["eps"]), f"${v['F']}$", f"${v['d']}$",
-                      sci(v["M"], 2), sci(v["queries"], 2),
-                      f"${v['toffoli_per_query']:,}$".replace(",", "{,}"),
-                      f"${v['rot_per_query']}$", sci(v["toffoli_total"], 2),
-                      f"${v['qubits']:,}$".replace(",", "{,}")])
-    write_table("resources", ["$\\epsilon$", "$F$", "$d$", "$M$", "queries",
-                              "Toffoli/query", "rotations/query", "Toffoli", "qubits"],
-                trows, "rrrrrrrrr")
-    plt = plt_setup()
-    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
-    ax[0].loglog(e, [r["err_median"] for r in rows], "-o", color="k", ms=3, lw=1, label="median")
-    ax[0].loglog(e, [r["err_q"] for r in rows], "--s", color="0.4", ms=3, lw=1,
-                 label=r"$8/\pi^2$ quantile")
-    ax[0].loglog(e, e, ":", color="0.6", lw=1.2, label=r"bound $\epsilon$")
-    ax[0].set_xlabel(r"target $\epsilon$"); ax[0].set_ylabel(r"$|\hat\sigma - \sigma^H/\sigma_{\max}|/\bar\sigma$")
-    ax[0].legend(frameon=False, loc="upper left")
-    ax[0].set_title(f"(a) readout error, {runs} runs", fontsize=9)
-    ax[1].loglog(e, q, "-o", color="k", ms=3, lw=1)
-    ax[1].set_xlabel(r"target $\epsilon$"); ax[1].set_ylabel(r"queries to $\mathcal{U}_V$")
-    ax[1].set_title(f"(b) queries $\\propto \\epsilon^{{{slope:.2f}}}$", fontsize=9)
-    fig.tight_layout(); fig.savefig("figs/accuracy.pdf"); print("figs/accuracy.pdf")
-
-
-# ==========================================================================
-# 10. Experiment 5: comparison with FFT-PCG
-# ==========================================================================
-def toffoli_fit(N, F):
-    return 20.5 * F ** 2 + 64 * F + 41 + 4 * np.log2(N)
-
-
-def quantum_toffolis(N, rho=10.0, eps=1e-2, name="square"):
-    """Total Toffolis of one readout at mesh N, with Eq. (toffoli) for U_V beyond N = 1024."""
-    d = 2 * qsvt_degree(rho, eps / 3)
-    aq = 1 + eps / 3
-    vf = chi(name, 16).mean()
-    sbar = vf + (1 - vf) / rho
-    F = int(np.ceil(np.log2(DELTA_CONST * N * 3 * d * aq / eps)))
-    M = int(np.ceil(3 * np.pi * aq / (eps * sbar)))
-    return (2 * M - 1) * d * (toffoli_fit(N, F) + check_oracle(name)["toffoli"])
-
-
-def exp_crossover(Ns=(64, 128, 256, 512, 1024), rho=10.0, eps=1e-2, t_T=(170e-6, 1e-6)):
-    rows = []
-    for N in Ns:
-        c = Cell("square", N, rho)
-        e = c.ehat(1)
-        f = -(c.A.T @ (c.St * e))
-        vref, _ = pcg(c.Kc, c.Kinv, f, 1e-13)
-        sH = (e + c.A @ vref) @ (c.St * (e + c.A @ vref))
-        best = []
-        for rep in range(3):                                  # wall time to |sigma - sigma^H| <= eps sbar
-            t0 = time.time()
-            x = np.zeros(c.n); r = f - f.mean(); z = c.Kinv(r); p = z.copy(); rz = r @ z; it = 0
-            while True:
-                it += 1
-                Ap = c.Kc(p); al = rz / (p @ Ap); x += al * p; r -= al * Ap
-                g = e + c.A @ x
-                if abs(g @ (c.St * g) - sH) <= eps * c.sbar:
-                    break
-                z = c.Kinv(r); rzn = r @ z; p = z + (rzn / rz) * p; rz = rzn
-            best.append(time.time() - t0)
-        rows.append(dict(N=N, iterations=it, seconds=min(best)))
-        print(f"crossover classical N={N}: {it} iterations, {min(best):.4f} s", flush=True)
-    Nn = np.array([r["N"] for r in rows], float); ts = np.array([r["seconds"] for r in rows])
-    work = Nn ** 2 * np.log2(Nn ** 2)
-    cfit = float(np.exp(np.mean(np.log(ts[-3:] / work[-3:]))))   # t = c N_dof log2 N_dof, last three
-    Nx = 2.0 ** np.arange(6, 26.001, 0.02)                    # fine grid in log2 N
-    tq = np.array([quantum_toffolis(N, rho, eps) for N in Nx])
-    tc = cfit * Nx ** 2 * np.log2(Nx ** 2)
-    cross = {}
-    for tt in t_T:
-        idx = np.where(tc >= tq * tt)[0]
-        cross[tt] = float(Nx[idx[0]] ** 2) if len(idx) else None
-        print(f"crossover at t_T = {tt * 1e6:g} us: N_dof = {cross[tt]:.3g}" if cross[tt]
-              else f"no crossover below N_dof = {Nx[-1] ** 2:.3g} at t_T = {tt * 1e6:g} us")
-    assert 1e10 < cross[170e-6] < 1e12 and 1e8 < cross[1e-6] < 1e10, cross       # Sec. 5.5
-    tq1024 = quantum_toffolis(1024, rho, eps)
-    RESULTS["crossover"] = dict(classical=rows, c_fit=cfit, crossover_ndof=cross,
-                                toffoli_1024=tq1024)
-    print(f"crossover: quantum readout at N = 1024: {tq1024:.3e} Toffolis = "
-          f"{tq1024 * 170e-6 / 86400:.3g} days at 170 us; classical {ts[-1]:.3g} s")
-    plt = plt_setup()
-    fig, ax = plt.subplots(1, 1, figsize=(4.2, 2.8))
-    ax.loglog(Nn ** 2, ts, "o", color="k", ms=4, label="FFT-PCG, measured")
-    ax.loglog(Nx ** 2, tc, "-", color="k", lw=1, label=r"FFT-PCG, $\propto N_{\mathrm{dof}}\log N_{\mathrm{dof}}$")
-    for tt, ls in zip(t_T, ("--", ":")):
-        ax.loglog(Nx ** 2, tq * tt, ls, color="0.35", lw=1.2,
-                  label=f"quantum readout, {tt * 1e6:g} $\\mu$s per Toffoli")
-        if cross[tt]:
-            ax.plot(cross[tt], cfit * cross[tt] * np.log2(cross[tt]), "s", color="0.35", ms=4)
-    ax.set_xlabel(r"$N_{\mathrm{dof}}$"); ax.set_ylabel("wall time (s)")
-    ax.legend(frameon=False, fontsize=6.5, loc="upper left")
-    fig.tight_layout(); fig.savefig("figs/crossover.pdf"); print("figs/crossover.pdf")
-
-
-# ==========================================================================
-EXPERIMENTS = {"mesh": exp_mesh, "geometry": exp_geometry, "contrast": exp_contrast,
-               "accuracy": exp_accuracy, "crossover": exp_crossover}
+EXPERIMENTS = {"mesh": exp_mesh, "geometry": exp_geometry, "resources": exp_resources}
 
 if __name__ == "__main__":
     only = sys.argv[1:] or list(EXPERIMENTS)
