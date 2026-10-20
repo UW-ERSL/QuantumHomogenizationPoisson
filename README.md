@@ -3,9 +3,8 @@
 Code for the paper *A Preconditioned Quantum Linear Solver for Periodic
 Two-Phase Heat Conduction with Mesh-Independent Condition Number*
 (K. Suresh). Every number the paper reports is reproduced by the scripts
-below: the numerical experiments of Sec. 5 by `experiments.py` and
-`makeTables.py`, the figures and checks of Secs. 2-4 and Appendix A by
-`makeFigures.py` and the `verify_*.py` scripts.
+below: every table by `makeTables.py`, every figure by `makeFigures.py`,
+and the checks of Secs. 2-4 and Appendix A by the `verify_*.py` scripts.
 
 For a periodic two-phase Q4 conduction cell with conductivity contrast `rho`,
 the cell-problem operator preconditioned by the homogeneous operator `K`,
@@ -35,7 +34,7 @@ The baseline condition number of Sec. 5.2 (Fig. mesh a) uses the
 subnormalization `alpha = 16/3` of the encoding of `K^chi / sigma_max` in the
 companion package [`pyblockencode`](https://github.com/UW-ERSL/PyBlockEncode)
 (`POISSON2D_2PHASE`). The value is set in `verify_square.py` and
-`experiments.py`; when pyblockencode is installed, `verify_square.py`
+`cells.py`; when pyblockencode is installed, `verify_square.py`
 cross-checks it.
 
 ## Install
@@ -47,7 +46,8 @@ cross-checks it.
 Only numpy and scipy are required for the package; matplotlib for
 `makeFigures.py`; pyblockencode (optional, not in `requirements.txt`) for the
 cross-check of `alpha` in `verify_square.py`; Qiskit and Qiskit Aer for the Aer cross-checks; and pyqsp
-for the companion-paper script `verify_qiskit_qsvt.py`. On Debian or Ubuntu system Python, pyqsp fails to
+for the companion-paper script `verify_qiskit_qsvt.py` and the circuit
+figures of `makeFigures.py circuits`; neither is needed for the paper. On Debian or Ubuntu system Python, pyqsp fails to
 build (`AttributeError: install_layout` from the system setuptools); install
 in a virtual environment:
 
@@ -75,21 +75,21 @@ print(checks, err, circ.resources()["toffoli_total"])
     python verify_qsvt_degree.py       # Sec. 3.7: QSVT degree and sup norm, a few seconds
     python verify_square.py            # Sec. 3.6: condition numbers and gate-level encoding of M, about 4 minutes
     python verify_inverse.py           # Sec. 3.7: the inverse on four heat sources, about 1 minute
-    python experiments.py              # Sec. 5: all three experiments (and tab:uv-cost of Sec. 4.5), tables/ and figs/, about 2 minutes
-    python experiments.py mesh         # one experiment: mesh, geometry, resources
-    python makeTables.py               # Secs. 5.3-5.4: tables/be_M.tex and tables/inverse.tex, about 3 minutes
-    python makeFigures.py              # all other figures to figs/, about 6 minutes
-    python makeFigures.py isometry     # encoding error and Toffoli count of U_V (App. A), about 4 minutes
+    python makeTables.py               # every table of the paper to tables/, about 1 minute
+    python makeTables.py inverse       # one table; --list for the names
+    python makeFigures.py              # every figure of the paper to figs/, about 10 minutes
+    python makeFigures.py mesh         # one figure; --list for the names
 
-`tables/`, `figs/` and `experiments.json` are generated, not committed. The
-paper uses `figs/spectrum.pdf` (fig:spectrum) and `figs/isometry_cost.pdf`
-(fig:isometry-cost) from `makeFigures.py`; `figs/cells.pdf` and `figs/mesh.pdf`
-with `tables/geometry.tex` and `tables/resources.tex` from `experiments.py`;
-and `tables/be_M.tex` and `tables/inverse.tex` from `makeTables.py`.
-`makeFigures.py` also writes `figs/qsvt_poly.pdf`, `figs/angles.pdf` and,
-with `python makeFigures.py circuits`, the readout and QSVT circuit figures
-(`figs/*_circuit.tex`, quantikz) for the companion paper; the current paper
-uses none of these. Table 1 of the paper (symbols) is not generated. Files in
+`tables/` and `figs/` are generated, not committed. The paper uses five tables,
+`uv_cost` (tab:uv-cost, Sec. 4.5), `geometry` (Sec. 5.1), `be_M` (Sec. 5.3),
+`inverse` (Sec. 5.4) and `resources` (Sec. 5.5), and four figures,
+`spectrum` (Sec. 2.2), `cells` (Sec. 5.1), `mesh` (Sec. 5.2) and
+`isometry_cost` (App. A). Both scripts assert every number the text quotes
+about them before writing. `python makeFigures.py circuits qsvt_poly angles`
+draws figures the paper does not use: the readout and QSVT circuit figures
+of the companion paper (`circuit_figures.py`, quantikz, needs Qiskit and
+pyqsp), the polynomial `q_t`, and the two angles over the wavenumbers.
+Table 1 of the paper (symbols) is not generated. Files in
 `tables/` or `figs/` left by earlier versions (for example `crossover.pdf`,
 `contrast.tex`) are not used.
 
@@ -109,9 +109,10 @@ uses none of these. Table 1 of the paper (symbols) is not generated. Files in
 | `verify_readout.py` | (companion paper) The quadratic form for the effective conductivity (Eq. sigmaH-pre) against the finite element cell solution; a statevector emulation of the readout circuit (Fig. readout) on the gate-level `U_V`; amplitude estimation sampled from its exact output distribution, against Eqs. readout-error and readout-queries |
 | `verify_qiskit_qsvt.py` | (companion paper) The readout circuit built entirely in Qiskit at N = 4, rho = 3: `U_V` (QFT, multiplexed `Q(k)`), `U_Sigma`, `U_M`, the QSVT sequence with pyqsp phases for `q_t`, flags; blocks checked against `Mtilde` and `q_t(Mtilde)/alpha_q`, and the all-zero probability sampled in Aer |
 | `verify_lsq_readout.py` | (companion paper) The least-squares readout `sigma^H/sigma_max = g^T (I - Pi) g` (even polynomial `f = (r_t + e_t)/(1 + e_t)`, one `U_V` per query): dense identity check, gate-level `U_V` emulation with pyqsp phases to d = 640, amplitude estimation from its exact distribution, shifted polynomial `A >= 0` |
-| `experiments.py` | The three experiments of Sec. 5 (geometry, mesh, resources) on the square, cross and laminate, with operators applied matrix-free up to N = 1024 and the inverse applied by a Clenshaw recurrence on the Chebyshev interpolant of `q_t`; the `R_chi` gate networks, checked on every element; writes `experiments.json`, `tables/*.tex` and `figs/*.pdf`, after asserting every number Secs. 4.5 and 5 quote; `tables/uv_cost.tex` (tab:uv-cost) from `IsometryCircuit.stage_counts()` |
-| `makeTables.py` | The two dense-check tables of Sec. 5 (`tab:be-M`, `tab:inverse`, N <= 64), with the claims asserted |
-| `makeFigures.py` | Writes the spectrum figure of Sec. 2.2 and the isometry-cost figure of App. A to `figs/`, after asserting every number the text quotes about them (`delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.43%); also the companion-paper circuit figures |
+| `cells.py` | Module, not a script: the three test cells (square, cross, laminate) with operators applied matrix-free up to N = 1024, the `R_chi` gate networks checked on every element, the inverse by a Clenshaw recurrence on the Chebyshev interpolant of `q_t`, the choice of F, and the resource counts |
+| `makeTables.py` | The five tables of the paper: `uv_cost` (from `IsometryCircuit.stage_counts()`), `geometry`, `be_M`, `inverse` (N <= 64, dense checks), `resources`; every number the text quotes about them asserted |
+| `makeFigures.py` | The four figures of the paper: `spectrum`, `cells`, `mesh` (N = 16 ... 1024, asserting every number of Sec. 5.2), `isometry_cost` (`delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.43%); on request, the figures the paper does not use |
+| `circuit_figures.py` | The readout and QSVT circuit figures of the companion paper, called by `makeFigures.py circuits` |
 
 The paper and the scripts write the subnormalization of the QSVT polynomial,
 `max |q_t|` on [-1, 1], as `C` (`alpha_q` in the companion-paper scripts).
@@ -189,7 +190,7 @@ Toffolis.
   with F from `F = ceil(log2(12 N d C / eps_p))`, F = 39 ... 45 and the
   Toffolis per `U_V` grow from 33,722 to 44,510.
 - **Gate-level encoding and the inverse (N <= 64, Secs. 5.3-5.4):** see the
-  checks above (`makeTables.py`).
+  checks above (`makeTables.py be_M inverse`).
 - **Resources (N = 1024, rho = 10, Sec. 5.5):** per query to the encoding of
   `Mtilde` (two `U_V`, one `R_chi`): 89,022 Toffolis and 590 rotations at
   eps_p = 1e-6 (d = 145, F = 45), 51,926 and 546 at eps_p = 1e-3 (d = 77,

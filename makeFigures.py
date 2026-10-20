@@ -1,26 +1,23 @@
 """makeFigures.py -- the figures of the paper, written to figs/ as PDF.
 
-    python makeFigures.py              # all figures, about 6 minutes
-    python makeFigures.py circuits     # only the two circuit figures, seconds
-    python makeFigures.py isometry     # only the isometry-cost figure (App. A), about 4 minutes
+    python makeFigures.py              all four figures of the paper (about 10 minutes)
+    python makeFigures.py mesh         just that one
+    python makeFigures.py --list       names and destinations
 
-figs/readout_circuit.pdf (fig:readout)  the readout circuit of verify_qiskit_qsvt.py, N = 4
-figs/qsvt_circuit.pdf    (fig:qsvt)     the QSVT sequence U_q of verify_qiskit_qsvt.py, d = 3
-figs/isometry_cost.pdf   (fig:isometry-cost) delta 2^F / N for the 42 cases and the Toffoli count against Eq. (toffoli)
-figs/spectrum.pdf   (fig:spectrum)   eigenvalues of K^chi and of M, square inclusion, rho = 10
-figs/qsvt_poly.pdf  (fig:qsvt-poly)  the odd QSVT polynomial q_t, rho = 10, eps_p = 1e-3
-figs/angles.pdf     (fig:angles)     omega(k) and the hourglass fraction sin^2 tau(k), N = 32
+figs/spectrum.pdf       (fig:spectrum, Sec. 2.2)   eigenvalues of K^chi and of M, square, rho = 10
+figs/cells.pdf          (fig:cells, Sec. 5.1)      the three test cells at N = 16
+figs/mesh.pdf           (fig:mesh, Sec. 5.2)       mesh refinement, N = 16 ... 1024, three cells
+figs/isometry_cost.pdf  (fig:isometry-cost, App. A) delta 2^F / N for the 42 cases
 
-The circuit figures are drawn from the circuits that readout() and u_q() of
-verify_qiskit_qsvt.py build, with U_V, U_M, U_q and the material reflection
-as labeled blocks; they are written as quantikz (figs/*_circuit.tex) and
-compiled with pdflatex. Every number the text quotes about a figure is
-ASSERTED here.
+Not in the paper, drawn only when named: `circuits` (the readout and QSVT
+circuit figures of the companion paper, circuit_figures.py; needs Qiskit and
+pyqsp), `qsvt_poly` (q_t at eps_p = 1e-3) and `angles` (omega and sin^2 tau
+over the wavenumbers, N = 32).
+
+Every number the text quotes about a figure is ASSERTED before the figure is
+written. The test cells and the matrix-free operators are those of cells.py.
 """
 import os
-import re
-import shutil
-import subprocess
 import sys
 
 import numpy as np
@@ -28,172 +25,125 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import cells
+
 RHO = 10.0
 plt.rcParams.update({"font.size": 9, "legend.fontsize": 8, "xtick.labelsize": 8,
                      "ytick.labelsize": 8, "pdf.fonttype": 42})
 os.makedirs("figs", exist_ok=True)
+STYLE = {"square": ("-", "k", "o"), "cross": ("--", "0.35", "s"), "laminate": (":", "0.55", "^")}
 
 
-# ---- circuit figures ---------------------------------------------------------
-from qiskit.circuit import ControlledGate, Gate, Parameter
-import verify_qiskit_qsvt as vq
+def draw_spectrum():
+    """figs/spectrum.pdf (fig:spectrum): eigenvalues of K^chi and of M, square inclusion, rho = 10."""
+    from verify_square import operators, circulant
+    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5), sharey=True)
+    prev = None
+    for N, ls, col in ((16, "-", "0.6"), (32, "--", "0.3"), (64, "-", "k")):
+        A, St, K, Kc, chi = operators(N, RHO)
+        Kih = circulant(lambda e: e ** -0.5, N)
+        lk = np.linalg.eigvalsh(Kc); lk = lk[lk > 1e-9 * lk.max()]
+        lm = np.linalg.eigvalsh(Kih @ Kc @ Kih); lm = lm[np.abs(lm) > 1e-9]
+        assert abs(lm.min() * RHO - 1) < 1e-9 and abs(lm.max() - 1) < 1e-9      # "in [1/rho, 1]"
+        inside = np.sum((lm > 1 / RHO + 1e-9) & (lm < 1 - 1e-9))
+        assert inside == 2 * N - 1, (N, inside)                                 # "2N - 1 strictly between"
+        r = lk.min() / lk.max()
+        if prev is not None:
+            assert 3.5 < prev / r < 4.2, (N, prev / r)                          # "about 4 per doubling"
+        prev = r
+        ax[0].loglog(np.arange(1, len(lk) + 1), lk / lk.max(), ls, color=col, lw=1.2, label=f"$N = {N}$")
+        ax[1].loglog(np.arange(1, len(lm) + 1), lm, ls, color=col, lw=1.2)
+        print(f"N = {N}: lmin/lmax(K^chi) = {r:.3e}; eigenvalues of M strictly inside: {inside}")
+    for a in ax:
+        a.set_xlabel("eigenvalue index (ascending)"); a.set_xlim(1, 5000); a.set_ylim(1e-4, 2)
+    ax[0].legend(loc="lower right", frameon=False)
+    for v, s in ((1 / RHO, r"$1/\rho$"), (1.0, "$1$")):
+        ax[1].axhline(v, color="0.5", lw=0.8, ls=":"); ax[1].text(1.3, v * 1.3, s, fontsize=8)
+    ax[0].set_ylabel("eigenvalue")
+    ax[0].set_title(r"(a) $\mathbf{K}^{\chi}/\lambda_{\max}(\mathbf{K}^{\chi})$", fontsize=9)
+    ax[1].set_title(r"(b) $\mathbf{M}$", fontsize=9)
+    fig.tight_layout(); fig.savefig("figs/spectrum.pdf")
+    print("figs/spectrum.pdf")
 
 
-class Box(Gate):
-    """Labeled block standing for a subcircuit; its inverse carries the dagger label."""
-    def __init__(self, n, label, inv_label=None):
-        super().__init__("box", n, [], label=label)
-        self.inv_label = label if inv_label is None else inv_label
-
-    def inverse(self, annotated=False):
-        return Box(self.num_qubits, self.inv_label, self.label)
-
-
-class CBox(ControlledGate):
-    """Singly controlled Box; self-inverse as used here (-R_chi)."""
-    def __init__(self, n, label):
-        super().__init__("cbox", n + 1, [], num_ctrl_qubits=1,
-                         base_gate=Box(n, label), label=label)
-
-    def inverse(self, annotated=False):
-        return CBox(self.num_qubits - 1, self.base_gate.label)
+def draw_cells():
+    """figs/cells.pdf (fig:cells): the three test cells at N = 16."""
+    fig, ax = plt.subplots(1, 3, figsize=(5.0, 1.9))
+    Nc = 16
+    for a_, g in zip(ax, cells.GEOMETRIES):
+        img = cells.chi(g, Nc).reshape(Nc, Nc).T                   # rows y, columns x
+        a_.imshow(img, origin="lower", cmap="Greys", vmin=-0.4, vmax=1.3,
+                  extent=(0, 1, 0, 1), interpolation="nearest")
+        for k in range(Nc + 1):
+            a_.axhline(k / Nc, color="0.85", lw=0.3); a_.axvline(k / Nc, color="0.85", lw=0.3)
+        a_.set_xticks([0, 1]); a_.set_yticks([0, 1]); a_.tick_params(labelsize=7)
+        a_.set_title(f"{g}, $v_f = {cells.chi(g, Nc).mean():.4g}$".replace("0.2344", "15/64")
+                     .replace("0.25", "1/4").replace("0.5", "1/2"), fontsize=8)
+    fig.tight_layout(); fig.savefig("figs/cells.pdf"); print("figs/cells.pdf")
 
 
-def tex_param(p):
-    s = str(p).replace("*", "")
-    s = re.sub(r"phi_(\d+)", r"\\phi_{\1}", s)
-    return s.replace("theta", r"\theta")
+def draw_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=RHO, eps_p=1e-6):
+    """figs/mesh.pdf (fig:mesh): kappa of K^chi and of Mtilde, the inverse error at fixed d, and the
+    Toffoli count of U_V, for the three cells, N = 16 ... 1024; asserts every number Sec. 5.2 quotes."""
+    import time
+    rows = []
+    for g in cells.GEOMETRIES:
+        for N in Ns:
+            t0 = time.time()
+            c = cells.Cell(g, N, rho)
+            lo, hi = cells.extreme_eigs(c)
+            lk = cells.lambda_min_Kc(c)
+            err, d = cells.inverse_error(c, eps_p)
+            delta, F = cells.encoding_bits(N, rho, eps_p)
+            lamK = 2 * (1 - np.cos(2 * np.pi / N))
+            r = dict(geometry=g, N=N, kappa_M=1 / lo, lam_max=hi, kappa_Kc=cells.ALPHA / lk,
+                     kappa_P=cells.ALPHA * rho / lamK, inv_err=err, d=d, F=F,
+                     toffoli_uv=cells.uv_counts(N, F)["toffoli"], seconds=time.time() - t0)
+            rows.append(r)
+            print(f"mesh {g:8s} N={N:5d} kappa(M)={r['kappa_M']:.10f} lmax={hi:.12f} "
+                  f"kappa(Kc)={r['kappa_Kc']:.4g} kappa_P={r['kappa_P']:.4g} inverse err={err:.3e} d={d} "
+                  f"F={F} Toffoli/U_V={r['toffoli_uv']:,} [{r['seconds']:.0f} s]", flush=True)
+    # ---- assertions: every claim of Sec. 5.2
+    _, d0, _, _ = cells.inverse_plan(rho, eps_p)
+    for r in rows:
+        assert abs(r["kappa_M"] - rho) < 1e-6 * rho and abs(r["lam_max"] - 1) < 1e-8, r   # kappa = rho
+        assert r["inv_err"] <= eps_p and r["d"] == d0, r                                   # within eps_p, flat d
+        assert r["kappa_P"] > r["kappa_Kc"], r
+    for g in cells.GEOMETRIES:
+        k = [r["kappa_Kc"] for r in rows if r["geometry"] == g]
+        ratios = np.array(k[1:]) / np.array(k[:-1])
+        assert np.all(ratios > 3.5) and abs(ratios[-1] - 4) < 0.02, (g, ratios)          # Theta(N^2)
+    tof = {r["N"]: r["toffoli_uv"] for r in rows if r["geometry"] == "square"}
+    Fs = {r["N"]: r["F"] for r in rows if r["geometry"] == "square"}
+    errs = [r["inv_err"] for r in rows]
+    print(f"mesh: inverse error {min(errs):.2e} to {max(errs):.2e} (eps_p = {eps_p:g}, d = {d0}); "
+          f"F = {Fs[Ns[0]]} to {Fs[Ns[-1]]}; Toffolis per U_V {tof[Ns[0]]:,} (N={Ns[0]}) to {tof[Ns[-1]]:,} (N={Ns[-1]})")
 
-
-def quantikz(circ, rows, labels, bundles, meters):
-    """quantikz source of circ. rows[q] is the row of qubit q, labels[r] the
-    label of row r, bundles[r] the number of qubits merged into row r; a
-    single-qubit gate applied to every qubit of a bundled row in succession is
-    drawn once, with superscript tensor power."""
-    ops, data, i = [], circ.data, 0
-    while i < len(data):
-        ins = data[i]
-        q = [circ.find_bit(b).index for b in ins.qubits]
-        name, op = ins.operation.name, ins.operation
-        if len(q) == 1 and bundles[rows[q[0]]] > 1:              # merge over the bundle
-            k = bundles[rows[q[0]]]
-            grp = data[i:i + k]
-            assert all(g.operation.name == name and len(g.qubits) == 1
-                       and rows[circ.find_bit(g.qubits[0]).index] == rows[q[0]] for g in grp), name
-            base = {"h": "H", "x": "X"}[name]
-            ops.append(("g", [rows[q[0]]], rf"{base}^{{\otimes m}}"))
-            i += k
-            continue
-        r = [rows[x] for x in q]
-        if name in ("h", "x"):
-            ops.append(("g", r, name.upper()))
-        elif name == "ry":
-            ops.append(("g", r, rf"R_y({tex_param(op.params[0])})"))
-        elif name == "rzz":
-            assert abs(r[0] - r[1]) == 1
-            ops.append(("rzz", sorted(r), rf"R_{{ZZ}}({tex_param(op.params[0])})"))
-        elif name == "box":
-            span = sorted(set(r))
-            assert span == list(range(span[0], span[-1] + 1)), op.label
-            ops.append(("box", span, op.label))
-        elif name == "cbox":
-            span = sorted(set(r[1:]))
-            assert span == list(range(span[0], span[-1] + 1))
-            ops.append(("cbox", [r[0]] + span, op.base_gate.label))
-        elif name.startswith("mcx"):
-            st = op.ctrl_state
-            ops.append(("mcx", r, [(st >> j) & 1 for j in range(len(r) - 1)]))
-        else:
-            raise ValueError(name)
-        i += 1
-
-    nrow = len(labels)
-    last, cols = [0] * nrow, []
-    for kind, r, _ in reversed(ops):                             # as late as possible
-        span = range(min(r), max(r) + 1)
-        c = max(last[x] for x in span)
-        for x in span:
-            last[x] = c + 1
-        cols.append(c)
-    ncol = max(last)
-    cols = [ncol - 1 - c for c in reversed(cols)]
-    grid = [[""] * ncol for _ in range(nrow)]
-    for (kind, r, lab), c in zip(ops, cols):
-        if kind == "g":
-            grid[r[0]][c] = rf"\gate{{{lab}}}"
-        elif kind in ("box", "rzz"):
-            grid[r[0]][c] = rf"\gate[{len(r)}]{{{lab}}}"
-        elif kind == "cbox":
-            grid[r[0]][c] = rf"\ctrl{{{r[-1] - r[0]}}}"
-            grid[r[1]][c] = rf"\gate[{len(r) - 1}]{{{lab}}}"
-        elif kind == "mcx":
-            *ctl, tgt = r
-            nodes = sorted(r)
-            for x, closed in zip(ctl, lab):
-                j = nodes.index(x)
-                nxt = nodes[j + 1] if x < tgt else nodes[j - 1]
-                grid[x][c] = (r"\ctrl" if closed else r"\octrl") + f"{{{nxt - x}}}"
-            grid[tgt][c] = r"\targ{}"
-    lines = []
-    for x in range(nrow):
-        head = rf"\lstick{{{labels[x]}}} & " + (rf"\qwbundle{{m}}" if bundles[x] > 1 else "")
-        tail = r" & \meter{}" if meters else r" & "
-        lines.append(head + " & " + " & ".join(grid[x]) + tail)
-    return ("\\begin{quantikz}[column sep=0.18cm, row sep={0.7cm,between origins}]\n"
-            + " \\\\\n".join(lines) + "\n\\end{quantikz}\n")
-
-
-def compile_circuit(body, name):
-    tex = ("\\documentclass[border=2pt]{standalone}\n\\usepackage{amsmath,amssymb}\n"
-           "\\usepackage{quantikz}\n\\begin{document}\n" + body + "\\end{document}\n")
-    open(f"figs/{name}.tex", "w").write(tex)
-    if shutil.which("pdflatex") is None:
-        print(f"figs/{name}.tex written; pdflatex not found, PDF not built")
-        return
-    run = subprocess.run(["pdflatex", "-interaction=nonstopmode", f"{name}.tex"],
-                         cwd="figs", capture_output=True, text=True)
-    assert run.returncode == 0, run.stdout[-2000:]
-    for ext in ("aux", "log"):
-        os.remove(f"figs/{name}.{ext}")
-    print(f"figs/{name}.pdf")
-
-
-def draw_circuits():
-    """figs/readout_circuit.pdf and figs/qsvt_circuit.pdf from verify_qiskit_qsvt.py."""
-    from qiskit import QuantumCircuit
-    m = vq.m
-    UV = Box(m + 4, r"\mathcal{U}_V", r"\mathcal{U}_V^{\dagger}")
-    UM = Box(m + 5, r"\mathcal{U}_M", r"\mathcal{U}_M^{\dagger}")
-    Uq = Box(m + 7, r"\mathcal{U}_q")
-    th = Parameter("theta")
-
-    # U_Sigma: Ry(theta) on its ancilla, -R_chi controlled by it, Ry(-theta)
-    ref = vq.u_sigma(np.ones(vq.N * vq.N), vq.RHO)
-    assert [d.operation.name for d in ref.data] == ["ry", "diagonal", "ry"]
-    assert all(ref.find_bit(ref.data[j].qubits[0]).index == m for j in (0, 2))
-    US = QuantumCircuit(m + 1, name="U_Sigma")
-    US.ry(th, m)
-    US.append(CBox(m, r"-R_{\chi}"), [m] + list(range(m)))
-    US.ry(-th, m)
-
-    # readout: pos (m), loc (4), qa, z, c, s1, s2, f1, f2 of verify_qiskit_qsvt.py,
-    # labeled s_0, z_1, z_2, s_1, s_2, f_1, f_2 in the paper
-    R = vq.readout(UV, US, Uq).decompose(gates_to_decompose=["U_Sigma", "U_Sigma_dg"])
-    assert R.num_qubits == 15                                                  # "15 qubits"
-    rows = [0] * m + list(range(1, 12))
-    labels = [r"position", r"local $\ell_0$", r"$\ell_1$", r"$\ell_2$", r"$\ell_3$",
-              r"$s_0$", r"$z_1$", r"$z_2$", r"$s_1$", r"$s_2$", r"$f_1$", r"$f_2$"]
-    compile_circuit(quantikz(R, rows, labels, [m] + [1] * 11, meters=True), "readout_circuit")
-
-    # U_q: d queries to U_M and U_M^dag between d + 1 projector phases
-    for d in (3, 15):
-        Q = vq.u_q(UM, [Parameter(f"phi_{j}") for j in range(d + 1)])
-        assert sum(x.operation.name == "box" for x in Q.data) == d             # "d queries to U_M"
-    Q = vq.u_q(UM, [Parameter(f"phi_{j}") for j in range(4)])
-    rows = [0] * m + list(range(1, 8))
-    labels = [r"position", r"local $\ell_0$", r"$\ell_1$", r"$\ell_2$", r"$\ell_3$",
-              r"$s_0$", r"$z_1$", r"$z_2$"]
-    compile_circuit(quantikz(Q, rows, labels, [m] + [1] * 7, meters=False), "qsvt_circuit")
+    fig, ax = plt.subplots(1, 3, figsize=(6.5, 2.35))
+    ndof = lambda g: [r["N"] ** 2 for r in rows if r["geometry"] == g]
+    for g in cells.GEOMETRIES:
+        ls, col, mk = STYLE[g]
+        ax[0].loglog(ndof(g), [r["kappa_Kc"] for r in rows if r["geometry"] == g], ls, color=col,
+                     marker=mk, ms=3, lw=1, label=g)
+        ax[1].loglog(ndof(g), [r["inv_err"] for r in rows if r["geometry"] == g], ls, color=col,
+                     marker=mk, ms=3, lw=1, label=g)
+    ax[0].loglog(ndof("square"), [r["kappa_M"] for r in rows if r["geometry"] == "square"], "-",
+                 color="k", lw=2.2, label=r"$\kappa(\tilde{\mathbf{M}})$, all")
+    ax[0].set_xlabel(r"$N_{\mathrm{dof}}$"); ax[0].set_ylabel("condition number seen by QSVT")
+    ax[0].set_ylim(3, 3e7)
+    ax[0].legend(frameon=False, fontsize=6, loc="lower right", bbox_to_anchor=(1.0, 0.12),
+                 handlelength=1.6, labelspacing=0.25)
+    ax[0].set_title(r"(a) $\kappa(\mathbf{K}^{\chi})$ and $\kappa(\tilde{\mathbf{M}})$", fontsize=9)
+    ax[1].axhline(eps_p, color="0.5", lw=0.8, ls="--")
+    ax[1].text(ndof("square")[0], eps_p * 1.25, r"$\epsilon_p$", fontsize=8)
+    ax[1].set_ylim(1e-7, 1e-5); ax[1].set_xlabel(r"$N_{\mathrm{dof}}$")
+    ax[1].set_ylabel("relative energy-norm error")
+    ax[1].set_title(f"(b) inverse, cell source, $d = {d0}$", fontsize=9)
+    ax[2].semilogx(ndof("square"), [tof[N] / 1e3 for N in Ns], "-o", color="k", ms=3, lw=1)
+    ax[2].set_xlabel(r"$N_{\mathrm{dof}}$"); ax[2].set_ylabel(r"Toffoli gates ($10^3$)")
+    ax[2].set_title(r"(c) one application of $\mathcal{U}_V$", fontsize=9)
+    ax[2].set_ylim(0, None)
+    fig.tight_layout(); fig.savefig("figs/mesh.pdf"); print("figs/mesh.pdf")
 
 
 def draw_isometry():
@@ -238,47 +188,6 @@ def draw_isometry():
     print(f"figs/isometry_cost.pdf: worst delta 2^F/N = {worst:.2f}, worst fit deviation {100 * dev:.2f}%")
 
 
-NEW_FIGURES = {"circuits": draw_circuits, "isometry": draw_isometry}
-ONLY = sys.argv[1:]
-assert all(x in NEW_FIGURES for x in ONLY), f"choose from {list(NEW_FIGURES)}"
-for name, draw in NEW_FIGURES.items():
-    if not ONLY or name in ONLY:
-        draw()
-if ONLY:
-    sys.exit()
-
-from verify_square import operators, circulant
-from quantuminversionpoisson.isometry_circuit import exact_angles
-
-# ---- spectra ---------------------------------------------------------------
-fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5), sharey=True)
-prev = None
-for N, ls, col in ((16, "-", "0.6"), (32, "--", "0.3"), (64, "-", "k")):
-    A, St, K, Kc, chi = operators(N, RHO)
-    Kih = circulant(lambda e: e ** -0.5, N)
-    lk = np.linalg.eigvalsh(Kc); lk = lk[lk > 1e-9 * lk.max()]
-    lm = np.linalg.eigvalsh(Kih @ Kc @ Kih); lm = lm[np.abs(lm) > 1e-9]
-    assert abs(lm.min() * RHO - 1) < 1e-9 and abs(lm.max() - 1) < 1e-9      # "in [1/rho, 1]"
-    inside = np.sum((lm > 1 / RHO + 1e-9) & (lm < 1 - 1e-9))
-    assert inside == 2 * N - 1, (N, inside)                                 # "2N - 1 strictly between"
-    r = lk.min() / lk.max()
-    if prev is not None:
-        assert 3.5 < prev / r < 4.2, (N, prev / r)                          # "about 4 per doubling"
-    prev = r
-    ax[0].loglog(np.arange(1, len(lk) + 1), lk / lk.max(), ls, color=col, lw=1.2, label=f"$N = {N}$")
-    ax[1].loglog(np.arange(1, len(lm) + 1), lm, ls, color=col, lw=1.2)
-    print(f"N = {N}: lmin/lmax(K^chi) = {r:.3e}; eigenvalues of M strictly inside: {inside}")
-for a in ax:
-    a.set_xlabel("eigenvalue index (ascending)"); a.set_xlim(1, 5000); a.set_ylim(1e-4, 2)
-ax[0].legend(loc="lower right", frameon=False)
-for v, s in ((1 / RHO, r"$1/\rho$"), (1.0, "$1$")):
-    ax[1].axhline(v, color="0.5", lw=0.8, ls=":"); ax[1].text(1.3, v * 1.3, s, fontsize=8)
-ax[0].set_ylabel("eigenvalue")
-ax[0].set_title(r"(a) $\mathbf{K}^{\chi}/\lambda_{\max}(\mathbf{K}^{\chi})$", fontsize=9)
-ax[1].set_title(r"(b) $\mathbf{M}$", fontsize=9)
-fig.tight_layout(); fig.savefig("figs/spectrum.pdf")
-
-# ---- the inverting polynomial ----------------------------------------------
 def T(t, z):
     """Chebyshev polynomial T_t, valid inside and outside [-1, 1]."""
     z = np.asarray(z, float); out = np.empty_like(z); i = np.abs(z) <= 1
@@ -287,58 +196,102 @@ def T(t, z):
     return out
 
 
-eps = 1e-3
-a = 1 / RHO ** 2; s = (1 + a) / (1 - a)
-t = int(np.ceil(np.arccosh(1 / eps) / np.arccosh(s)))
-qt = lambda x: (1 - T(t, (1 + a - 2 * x ** 2) / (1 - a)) / np.cosh(t * np.arccosh(s))) / x
-x = np.linspace(-1, 1, 400001); x = x[x != 0]
-q = qt(x)
-C, xr = np.abs(q).max(), abs(x[np.argmax(np.abs(q))])
-xp = np.linspace(1 / RHO, 1, 20001)
-res = np.abs(xp * qt(xp) - 1)
-assert 2 * t - 1 == 75 and abs(C / RHO - 1.30) < 0.005 and abs(xr * RHO - 0.585) < 0.001
-assert res.max() <= eps and abs(res.max() - 9.8e-4) < 0.05e-4                # "9.8e-4 <= eps_p"
-print(f"q_t: d = {2 * t - 1}, C = {C / RHO:.3f} rho at |x| = {xr * RHO:.3f}/rho, residual {res.max():.3e}")
-fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
-ax[0].plot(x, q, "k", lw=1.0, label=r"$q_t(x)$")
-xx = np.linspace(1 / RHO, 1, 200)
-ax[0].plot(xx, 1 / xx, color="0.55", lw=2.5, ls=":", label=r"$1/x$")
-ax[0].plot(-xx, -1 / xx, color="0.55", lw=2.5, ls=":")
-for v in (-1 / RHO, 1 / RHO):
-    ax[0].axvline(v, color="0.7", lw=0.6)
-ax[0].set_xlim(-1, 1); ax[0].set_ylim(-1.6 * RHO, 1.6 * RHO); ax[0].set_xlabel("$x$")
-ax[0].legend(loc="upper left", frameon=False)
-ax[0].set_title(f"(a) $q_t$ of degree $d = {2 * t - 1}$", fontsize=9)
-ax[1].semilogy(xp, res + 1e-18, "k", lw=0.8)
-ax[1].axhline(eps, color="0.5", lw=0.8, ls="--")
-ax[1].text(0.115, eps * 1.6, r"$\epsilon_p = 10^{-3}$", fontsize=8)
-ax[1].set_xlim(1 / RHO, 1); ax[1].set_ylim(1e-7, 1e-2); ax[1].set_xlabel("$x$")
-ax[1].set_title(r"(b) $|x\,q_t(x) - 1|$ on $[1/\rho, 1]$", fontsize=9)
-fig.tight_layout(); fig.savefig("figs/qsvt_poly.pdf")
+def draw_qsvt_poly():
+    """figs/qsvt_poly.pdf: the odd QSVT polynomial q_t, rho = 10, eps_p = 1e-3 (not in the paper)."""
+    eps = 1e-3
+    a = 1 / RHO ** 2; s = (1 + a) / (1 - a)
+    t = int(np.ceil(np.arccosh(1 / eps) / np.arccosh(s)))
+    qt = lambda x: (1 - T(t, (1 + a - 2 * x ** 2) / (1 - a)) / np.cosh(t * np.arccosh(s))) / x
+    x = np.linspace(-1, 1, 400001); x = x[x != 0]
+    q = qt(x)
+    C, xr = np.abs(q).max(), abs(x[np.argmax(np.abs(q))])
+    xp = np.linspace(1 / RHO, 1, 20001)
+    res = np.abs(xp * qt(xp) - 1)
+    assert 2 * t - 1 == 75 and abs(C / RHO - 1.30) < 0.005 and abs(xr * RHO - 0.585) < 0.001
+    assert res.max() <= eps and abs(res.max() - 9.8e-4) < 0.05e-4                # "9.8e-4 <= eps_p"
+    print(f"q_t: d = {2 * t - 1}, C = {C / RHO:.3f} rho at |x| = {xr * RHO:.3f}/rho, residual {res.max():.3e}")
+    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.5))
+    ax[0].plot(x, q, "k", lw=1.0, label=r"$q_t(x)$")
+    xx = np.linspace(1 / RHO, 1, 200)
+    ax[0].plot(xx, 1 / xx, color="0.55", lw=2.5, ls=":", label=r"$1/x$")
+    ax[0].plot(-xx, -1 / xx, color="0.55", lw=2.5, ls=":")
+    for v in (-1 / RHO, 1 / RHO):
+        ax[0].axvline(v, color="0.7", lw=0.6)
+    ax[0].set_xlim(-1, 1); ax[0].set_ylim(-1.6 * RHO, 1.6 * RHO); ax[0].set_xlabel("$x$")
+    ax[0].legend(loc="upper left", frameon=False)
+    ax[0].set_title(f"(a) $q_t$ of degree $d = {2 * t - 1}$", fontsize=9)
+    ax[1].semilogy(xp, res + 1e-18, "k", lw=0.8)
+    ax[1].axhline(eps, color="0.5", lw=0.8, ls="--")
+    ax[1].text(0.115, eps * 1.6, r"$\epsilon_p = 10^{-3}$", fontsize=8)
+    ax[1].set_xlim(1 / RHO, 1); ax[1].set_ylim(1e-7, 1e-2); ax[1].set_xlabel("$x$")
+    ax[1].set_title(r"(b) $|x\,q_t(x) - 1|$ on $[1/\rho, 1]$", fontsize=9)
+    fig.tight_layout(); fig.savefig("figs/qsvt_poly.pdf")
 
-# ---- the two angles over the wavenumbers -------------------------------------
-N = 32
-om = np.full((N, N), np.nan); hg = np.full((N, N), np.nan)
-for k1 in range(N):
-    for k2 in range(N):
-        if (k1, k2) == (0, 0):
-            continue
-        o, t_ = exact_angles(N, k1, k2)
-        hg[k1, k2] = np.sin(t_) ** 2
-        if (k1, k2) != (N // 2, N // 2):
-            om[k1, k2] = np.degrees(o)
-assert np.nanmax(np.abs(hg[:, 0])) < 1e-14 and np.nanmax(np.abs(hg[0, :])) < 1e-14   # "k on an axis: no hourglass"
-assert abs(hg[N // 2, N // 2] - 1) < 1e-14                                           # "(N/2, N/2): pure hourglass"
-assert abs(hg[N // 4, N // 4] - 0.25) < 1e-14                                        # "(N/4, N/4): 1/4"
-fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.7))
-for a_, Z, ttl, lab in ((ax[0], om, r"(a) $\omega(\mathbf{k})$", "degrees"),
-                       (ax[1], hg, r"(b) $\sin^2\tau(\mathbf{k})$", "")):
-    im = a_.imshow(Z.T, origin="lower", cmap="viridis", extent=(-0.5, N - 0.5, -0.5, N - 0.5))
-    a_.set_xlabel("$k_1$"); a_.set_ylabel("$k_2$"); a_.set_title(ttl, fontsize=9)
-    a_.set_xticks([0, 8, 16, 24, 31]); a_.set_yticks([0, 8, 16, 24, 31])
-    cb = fig.colorbar(im, ax=a_, fraction=0.046, pad=0.04)
-    if lab:
-        cb.set_label(lab, fontsize=8)
-    cb.ax.tick_params(labelsize=8)
-fig.tight_layout(); fig.savefig("figs/angles.pdf")
-print("figs/spectrum.pdf, figs/qsvt_poly.pdf, figs/angles.pdf")
+
+def draw_angles():
+    """figs/angles.pdf: omega(k) and the hourglass fraction sin^2 tau(k), N = 32 (not in the paper)."""
+    from quantuminversionpoisson.isometry_circuit import exact_angles
+    N = 32
+    om = np.full((N, N), np.nan); hg = np.full((N, N), np.nan)
+    for k1 in range(N):
+        for k2 in range(N):
+            if (k1, k2) == (0, 0):
+                continue
+            o, t_ = exact_angles(N, k1, k2)
+            hg[k1, k2] = np.sin(t_) ** 2
+            if (k1, k2) != (N // 2, N // 2):
+                om[k1, k2] = np.degrees(o)
+    assert np.nanmax(np.abs(hg[:, 0])) < 1e-14 and np.nanmax(np.abs(hg[0, :])) < 1e-14   # "k on an axis: no hourglass"
+    assert abs(hg[N // 2, N // 2] - 1) < 1e-14                                           # "(N/2, N/2): pure hourglass"
+    assert abs(hg[N // 4, N // 4] - 0.25) < 1e-14                                        # "(N/4, N/4): 1/4"
+    fig, ax = plt.subplots(1, 2, figsize=(6.5, 2.7))
+    for a_, Z, ttl, lab in ((ax[0], om, r"(a) $\omega(\mathbf{k})$", "degrees"),
+                           (ax[1], hg, r"(b) $\sin^2\tau(\mathbf{k})$", "")):
+        im = a_.imshow(Z.T, origin="lower", cmap="viridis", extent=(-0.5, N - 0.5, -0.5, N - 0.5))
+        a_.set_xlabel("$k_1$"); a_.set_ylabel("$k_2$"); a_.set_title(ttl, fontsize=9)
+        a_.set_xticks([0, 8, 16, 24, 31]); a_.set_yticks([0, 8, 16, 24, 31])
+        cb = fig.colorbar(im, ax=a_, fraction=0.046, pad=0.04)
+        if lab:
+            cb.set_label(lab, fontsize=8)
+        cb.ax.tick_params(labelsize=8)
+    fig.tight_layout(); fig.savefig("figs/angles.pdf")
+    print("figs/spectrum.pdf, figs/qsvt_poly.pdf, figs/angles.pdf")
+
+def draw_circuits():
+    """figs/readout_circuit.pdf and figs/qsvt_circuit.pdf (companion paper)."""
+    import circuit_figures
+    circuit_figures.draw_circuits()
+
+
+FIGURES = {
+    "spectrum":  (draw_spectrum,  "eigenvalues of K^chi and of M (fig:spectrum, Sec. 2.2)"),
+    "cells":     (draw_cells,     "the three test cells (fig:cells, Sec. 5.1)"),
+    "mesh":      (draw_mesh,      "mesh refinement, N = 16 ... 1024 (fig:mesh, Sec. 5.2)"),
+    "isometry":  (draw_isometry,  "encoding error of U_V (fig:isometry-cost, App. A)"),
+}
+EXTRA = {
+    "circuits":  (draw_circuits,  "readout and QSVT circuits (companion paper; Qiskit, pyqsp)"),
+    "qsvt_poly": (draw_qsvt_poly, "q_t at eps_p = 1e-3 (not in the paper)"),
+    "angles":    (draw_angles,    "omega and sin^2 tau, N = 32 (not in the paper)"),
+}
+
+
+def main(argv):
+    every = {**FIGURES, **EXTRA}
+    if "--list" in argv:
+        for k, (_, d) in every.items():
+            print(f"  {k:<10} {d}")
+        return
+    wanted = [a for a in argv if not a.startswith("-")] or list(FIGURES)
+    bad = [w for w in wanted if w not in every]
+    if bad:
+        raise SystemExit(f"unknown figure(s) {bad}; choose from {list(every)}")
+    for name in wanted:
+        fn, desc = every[name]
+        print(f"{name}  ({desc})", flush=True)
+        fn()
+    print("\ndone")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
