@@ -1,4 +1,4 @@
-"""verify_full_unitary -- full 16 x 16 error of the wavenumber-controlled stage (App. B).
+"""verify_full_unitary -- full 16 x 16 error of the wavenumber-controlled stage (App. A.3).
 
     python verify_full_unitary.py      # a few minutes
 

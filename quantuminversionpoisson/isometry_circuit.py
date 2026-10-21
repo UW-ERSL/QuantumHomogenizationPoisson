@@ -5,7 +5,7 @@ V = W^{1/2} G (K^+)^{1/2} = (F^dag (x) I_8) blockdiag_k Vhat(k) F
 builds the wavenumber-controlled stage sum_k |k><k| (x) Q(k) from reversible
 arithmetic, without tabulating anything, and checks it.
 
-Factorization used (Proposition 6, Appendix B)
+Factorization used (App. A.1; detail in docs/angle_oracle.md)
 ----------------------------------------------
 With phi_j = pi k_j / N,
 
@@ -327,7 +327,7 @@ class IsometryCircuit:
     # -- resources -------------------------------------------------------------
     def stage_counts(self):
         """Toffoli gates (compute + uncompute, as in resources) and work-register
-        qubits added, for each stage of the angle oracle (App. B.5, tab:uv-cost)."""
+        qubits added, for each stage of the angle oracle (App. A.2, tab:uv-cost)."""
         tof = lambda c: 2 * c.get("ccx", 0) + c.get("and", 0) + c.get("andu", 0)
         out = []
         for (_, c0, n0), (tag, c1, n1) in zip(self._marks, self._marks[1:]):

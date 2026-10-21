@@ -4,7 +4,7 @@ Code for the paper *A Preconditioned Quantum Linear Solver for Periodic
 Two-Phase Heat Conduction with Mesh-Independent Condition Number*
 (K. Suresh). Every number the paper reports is reproduced by the scripts
 below: every table by `makeTables.py`, every figure by `makeFigures.py`,
-and the checks of Secs. 2-3 and Appendices A-B by the `verify_*.py` scripts.
+and the checks of Secs. 2-3 and Appendix A by the `verify_*.py` scripts.
 
 For a periodic two-phase Q4 conduction cell with conductivity contrast `rho`,
 the cell-problem operator preconditioned by the homogeneous operator `K`,
@@ -81,7 +81,7 @@ print(checks, err, circ.resources()["toffoli_total"])
     python makeFigures.py mesh         # one figure; --list for the names
 
 `tables/` and `figs/` are generated, not committed. The paper uses five tables,
-`uv_cost` (tab:uv-cost, App. B.5), `geometry` (Sec. 4.1), `be_M` (Sec. 4.3),
+`uv_cost` (tab:uv-cost, App. A.2), `geometry` (Sec. 4.1), `be_M` (Sec. 4.3),
 `inverse` (Sec. 4.4) and `resources` (Sec. 4.5), and four figures,
 `spectrum` (Sec. 2.2), `cells` (Sec. 4.1), `mesh` (Sec. 4.2) and
 `isometry_cost` (App. A). Both scripts assert every number the text quotes
@@ -99,6 +99,7 @@ Table 1 of the paper (symbols) is not generated. Files in
 |---|---|
 | `quantuminversionpoisson/fourier_symbol.py` | Closed-form scalar symbol of `K` (Eq. symbol-entries), functions of `K` by FFT, `K` assembled element by element |
 | `quantuminversionpoisson/revcirc.py` | X/CX/CCX reversible fixed-point arithmetic (Gidney adders by default, `ADDER = "cuccaro"` for the ripple-carry count; CORDIC), bit-packed simulator; unchanged from the elasticity package |
+| `docs/angle_oracle.md` | The angle oracle of `U_V` in detail: CORDIC modes, reversible arithmetic, the five stages, a trace at k = (3, 1), and the encoding-error bound with its proof (App. A of the paper in brief) |
 | `quantuminversionpoisson/isometry_circuit.py` | Closed-form factorization of `Vhat(k)` into two angles; the gate-level circuit `U_V`; dense reference `V` |
 | `verify_isometry.py` | Arithmetic, factorization, circuit, and scaling checks |
 | `verify_isometry_aer.py` | The exported circuit in Qiskit Aer (MPS) for every wavenumber at N = 4 |
@@ -117,7 +118,7 @@ Table 1 of the paper (symbols) is not generated. Files in
 The paper and the scripts write the subnormalization of the QSVT polynomial,
 `max |q_t|` on [-1, 1], as `C` (`alpha_q` in the companion-paper scripts).
 
-## Factorization (App. A.3)
+## Factorization (App. A.1)
 
 With `phi_j = pi k_j / N`, `a = sin phi1 cos phi2`, `b = cos phi1 sin phi2`,
 `zeta = sin phi1 sin phi2` and `r = (a^2 + b^2)^{1/2}`,
@@ -134,6 +135,12 @@ patterns. All three rotations act only on states with b3 = 0, so `Q(0)` maps
 `pi (k1 +- k2) / N` and two CORDIC vectorings; the decision bits control the
 rotations directly, and the arithmetic is then reversed so that every work
 wire returns to zero.
+
+The gate-level detail that the paper leaves out, the two CORDIC modes with a
+worked example, the changes for reversible arithmetic, the five stages of the
+angle oracle bit by bit, the register values at one wavenumber, and the
+encoding-error bound with its proof, is in
+[`docs/angle_oracle.md`](docs/angle_oracle.md).
 
 ## Implementation checks
 
@@ -210,7 +217,7 @@ F = 34, 25,962 Toffolis (circuit count), 3,575 wires; F = 45, 44,510 Toffolis,
 5,698 wires.
 The four CORDIC runs, computed and uncomputed, use exactly 20 F^2 + 48 F
 Toffolis (42,660 at F = 45, 96%); `IsometryCircuit.stage_counts()` gives the
-count and the work-register qubits by stage (tab:uv-cost of App. B.5).
+count and the work-register qubits by stage (tab:uv-cost of App. A.2).
 Rotations per application: 2F + 4 in the angle oracle, 4 n (n - 1) / 2
 controlled phases in the two 2D Fourier transforms, and 2n phase gates for
 e^{i(phi1+phi2)}.
