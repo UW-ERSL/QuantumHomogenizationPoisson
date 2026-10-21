@@ -1,4 +1,4 @@
-"""verify_inverse -- the preconditioned inverse applied to specific heat sources (Sec. 5.4).
+"""verify_inverse -- the preconditioned inverse applied to specific heat sources (Sec. 4.4).
 
     python verify_inverse.py           # about 2 minutes
 

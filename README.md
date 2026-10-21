@@ -4,7 +4,7 @@ Code for the paper *A Preconditioned Quantum Linear Solver for Periodic
 Two-Phase Heat Conduction with Mesh-Independent Condition Number*
 (K. Suresh). Every number the paper reports is reproduced by the scripts
 below: every table by `makeTables.py`, every figure by `makeFigures.py`,
-and the checks of Secs. 2-4 and Appendix A by the `verify_*.py` scripts.
+and the checks of Secs. 2-3 and Appendices A-B by the `verify_*.py` scripts.
 
 For a periodic two-phase Q4 conduction cell with conductivity contrast `rho`,
 the cell-problem operator preconditioned by the homogeneous operator `K`,
@@ -30,7 +30,7 @@ solution, and runs the numerical experiments of the paper on three dyadic
 cells (square, cross, laminate) up to N = 1024. The Python package keeps its
 original name, `quantuminversionpoisson`.
 
-The baseline condition number of Sec. 5.2 (Fig. mesh a) uses the
+The baseline condition number of Sec. 4.2 (Fig. mesh a) uses the
 subnormalization `alpha = 16/3` of the encoding of `K^chi / sigma_max` in the
 companion package [`pyblockencode`](https://github.com/UW-ERSL/PyBlockEncode)
 (`POISSON2D_2PHASE`). The value is set in `verify_square.py` and
@@ -69,9 +69,9 @@ print(checks, err, circ.resources()["toffoli_total"])
 ```
 
     python -m quantuminversionpoisson.fourier_symbol   # Sec. 2.2: symbol against assembly, seconds
-    python verify_isometry.py          # Secs. 3.5 and 4: circuit checks, about 15 seconds
+    python verify_isometry.py          # Sec. 3.5, App. A: circuit checks, about 15 seconds
     python verify_isometry.py --aer    # adds the Qiskit Aer cross-check, about 4 minutes
-    python verify_full_unitary.py      # Sec. 4.4, App. A: full-unitary error of U_V, about 6 minutes
+    python verify_full_unitary.py      # Sec. 3.8, App. A: full-unitary error of U_V, about 6 minutes
     python verify_qsvt_degree.py       # Sec. 3.7: QSVT degree and sup norm, a few seconds
     python verify_square.py            # Sec. 3.6: condition numbers and gate-level encoding of M, about 4 minutes
     python verify_inverse.py           # Sec. 3.7: the inverse on four heat sources, about 1 minute
@@ -81,9 +81,9 @@ print(checks, err, circ.resources()["toffoli_total"])
     python makeFigures.py mesh         # one figure; --list for the names
 
 `tables/` and `figs/` are generated, not committed. The paper uses five tables,
-`uv_cost` (tab:uv-cost, Sec. 4.5), `geometry` (Sec. 5.1), `be_M` (Sec. 5.3),
-`inverse` (Sec. 5.4) and `resources` (Sec. 5.5), and four figures,
-`spectrum` (Sec. 2.2), `cells` (Sec. 5.1), `mesh` (Sec. 5.2) and
+`uv_cost` (tab:uv-cost, App. B.5), `geometry` (Sec. 4.1), `be_M` (Sec. 4.3),
+`inverse` (Sec. 4.4) and `resources` (Sec. 4.5), and four figures,
+`spectrum` (Sec. 2.2), `cells` (Sec. 4.1), `mesh` (Sec. 4.2) and
 `isometry_cost` (App. A). Both scripts assert every number the text quotes
 about them before writing. `python makeFigures.py circuits qsvt_poly angles`
 draws figures the paper does not use: the readout and QSVT circuit figures
@@ -111,13 +111,13 @@ Table 1 of the paper (symbols) is not generated. Files in
 | `verify_lsq_readout.py` | (companion paper) The least-squares readout `sigma^H/sigma_max = g^T (I - Pi) g` (even polynomial `f = (r_t + e_t)/(1 + e_t)`, one `U_V` per query): dense identity check, gate-level `U_V` emulation with pyqsp phases to d = 640, amplitude estimation from its exact distribution, shifted polynomial `A >= 0` |
 | `cells.py` | Module, not a script: the three test cells (square, cross, laminate) with operators applied matrix-free up to N = 1024, the `R_chi` gate networks checked on every element, the inverse by a Clenshaw recurrence on the Chebyshev interpolant of `q_t`, the choice of F, and the resource counts |
 | `makeTables.py` | The five tables of the paper: `uv_cost` (from `IsometryCircuit.stage_counts()`), `geometry`, `be_M`, `inverse` (N <= 64, dense checks), `resources`; every number the text quotes about them asserted |
-| `makeFigures.py` | The four figures of the paper: `spectrum`, `cells`, `mesh` (N = 16 ... 1024, asserting every number of Sec. 5.2), `isometry_cost` (`delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.43%); on request, the figures the paper does not use |
+| `makeFigures.py` | The four figures of the paper: `spectrum`, `cells`, `mesh` (N = 16 ... 1024, asserting every number of Sec. 4.2), `isometry_cost` (`delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.43%); on request, the figures the paper does not use |
 | `circuit_figures.py` | The readout and QSVT circuit figures of the companion paper, called by `makeFigures.py circuits` |
 
 The paper and the scripts write the subnormalization of the QSVT polynomial,
 `max |q_t|` on [-1, 1], as `C` (`alpha_q` in the companion-paper scripts).
 
-## Factorization (Sec. 4.3)
+## Factorization (App. A.3)
 
 With `phi_j = pi k_j / N`, `a = sin phi1 cos phi2`, `b = cos phi1 sin phi2`,
 `zeta = sin phi1 sin phi2` and `r = (a^2 + b^2)^{1/2}`,
@@ -137,7 +137,7 @@ wire returns to zero.
 
 ## Implementation checks
 
-**Symbol and isometry (Secs. 2.2, 3.4-3.5, 4).**
+**Symbol and isometry (Secs. 2.2, 3.4-3.5, App. A).**
 
 - Symbol against the assembled `K` to 4.4e-16, N = 4 ... 32; smallest nonzero
   eigenvalue `2 (1 - cos(2 pi / N))`, attained at k = (1, 0).
@@ -153,7 +153,7 @@ wire returns to zero.
 - The exported 594-qubit circuit in Qiskit Aer (MPS) for every `k` at N = 4,
   agreeing to 6.5e-10.
 
-**Preconditioned operator and its inverse (Secs. 3.6-3.7, 5.3-5.4).**
+**Preconditioned operator and its inverse (Secs. 3.6-3.7, 4.3-4.4).**
 
 - Square inclusion, `v_f = 1/4`, `N` = 8 ... 64, `rho` = 1.5 ... 1e4:
   `kappa(Mtilde) = rho` exactly (the bound is attained), while the condition
@@ -172,7 +172,7 @@ wire returns to zero.
   attains the residual 8.69e-7 of the polynomial; the gate-level block changes
   the errors by at most 1.2e-7 (F = 24) and 2.8e-9 (F = 32).
 
-## Numerical experiments (Sec. 5)
+## Numerical experiments (Sec. 4)
 
 All with operators applied matrix-free (FFT for functions of `K`, sparse
 `W^{1/2} G`, Clenshaw recurrence for `q_t`), N up to 1024 (N_dof ~ 1.05e6),
@@ -180,18 +180,18 @@ on the square (v_f = 1/4), the cross (two bands of width N/8, v_f = 15/64,
 connected) and the laminate (chi = 1 for x < 1/2). `R_chi` costs 2, 9 and 0
 Toffolis.
 
-- **Cells (N = 256, Sec. 5.1):** `rho lambda_min(Mtilde)`, `lambda_max` and
+- **Cells (N = 256, Sec. 4.1):** `rho lambda_min(Mtilde)`, `lambda_max` and
   `kappa(Mtilde) / rho` equal 1 to six digits for every cell at rho = 10 and
   1e4.
-- **Mesh (rho = 10, N = 16 ... 1024, Sec. 5.2):** `kappa(Mtilde) = 10` to ten
+- **Mesh (rho = 10, N = 16 ... 1024, Sec. 4.2):** `kappa(Mtilde) = 10` to ten
   digits; `kappa(K^chi)` seen by QSVT grows by 4.00 per doubling to 1.2e6;
   the inverse at the fixed degree d = 145 (eps_p = 1e-6) has relative
   energy-norm error 4.1e-7 to 8.6e-7 for the cell-problem source of each cell;
   with F from `F = ceil(log2(12 N d C / eps_p))`, F = 39 ... 45 and the
   Toffolis per `U_V` grow from 33,722 to 44,510.
-- **Gate-level encoding and the inverse (N <= 64, Secs. 5.3-5.4):** see the
+- **Gate-level encoding and the inverse (N <= 64, Secs. 4.3-4.4):** see the
   checks above (`makeTables.py be_M inverse`).
-- **Resources (N = 1024, rho = 10, Sec. 5.5):** per query to the encoding of
+- **Resources (N = 1024, rho = 10, Sec. 4.5):** per query to the encoding of
   `Mtilde` (two `U_V`, one `R_chi`): 89,022 Toffolis and 590 rotations at
   eps_p = 1e-6 (d = 145, F = 45), 51,926 and 546 at eps_p = 1e-3 (d = 77,
   F = 34); the inverse costs 1.3e7 and 4.0e6 Toffolis on 5,701 and 3,578
@@ -210,7 +210,7 @@ F = 34, 25,962 Toffolis (circuit count), 3,575 wires; F = 45, 44,510 Toffolis,
 5,698 wires.
 The four CORDIC runs, computed and uncomputed, use exactly 20 F^2 + 48 F
 Toffolis (42,660 at F = 45, 96%); `IsometryCircuit.stage_counts()` gives the
-count and the work-register qubits by stage (tab:uv-cost of Sec. 4.5).
+count and the work-register qubits by stage (tab:uv-cost of App. B.5).
 Rotations per application: 2F + 4 in the angle oracle, 4 n (n - 1) / 2
 controlled phases in the two 2D Fourier transforms, and 2n phase gates for
 e^{i(phi1+phi2)}.

@@ -77,7 +77,7 @@ def kappa_fmt(x: float) -> str:
 
 
 # ==========================================================================
-#  tab:uv-cost (Sec. 4.5): one application of U_V at N = 1024, F = 45, by stage
+#  tab:uv-cost (App. B.5): one application of U_V at N = 1024, F = 45, by stage
 # ==========================================================================
 def tab_uv_cost() -> None:
     N, eps_p = 1024, 1e-6
@@ -92,7 +92,7 @@ def tab_uv_cost() -> None:
     assert cordic == 20 * F ** 2 + 48 * F == 42660 and tot - cordic == 1850  # Eq. (cordic-count)
     assert round(100 * cordic / tot) == 96                                   # "96 percent"
     assert work == 5674 and work + 2 * n + 4 == circ.resources()["wires"] == 5698
-    assert v["qubits"] == 5701 and round(100 * work / v["qubits"], 1) == 99.5   # Sec. 4.1
+    assert v["qubits"] == 5701 and round(100 * work / v["qubits"], 1) == 99.5   # App. A.1
     assert v["rot_per_query"] == 2 * ((2 * F + 4) + 2 * n * (n - 1) + 2 * n) + 2 == 590
     labels = [("1", "load $\\phi_1 \\pm \\phi_2$: adder and subtractor", "load"),
               ("2", "cosines and sines: two rotation-mode runs", "cos_sin"),
@@ -108,7 +108,7 @@ def tab_uv_cost() -> None:
 
 
 # ==========================================================================
-#  tab:geometry (Sec. 5.1): extreme eigenvalues of Mtilde for the three cells
+#  tab:geometry (Sec. 4.1): extreme eigenvalues of Mtilde for the three cells
 # ==========================================================================
 def tab_geometry(N: int = 256, rhos=(10.0, 1e4)) -> None:
     rows = []
@@ -130,7 +130,7 @@ def tab_geometry(N: int = 256, rhos=(10.0, 1e4)) -> None:
 
 
 # ==========================================================================
-#  tab:resources (Sec. 5.5): the inverse at N = 1024
+#  tab:resources (Sec. 4.5): the inverse at N = 1024
 # ==========================================================================
 def tab_resources(N: int = 1024, eps_ps=(1e-3, 1e-6)) -> None:
     rows = []
@@ -184,11 +184,11 @@ def tab_inverse() -> None:
 
 
 TABLES = {
-    "uv_cost":   (tab_uv_cost,   "U_V by stage of the angle oracle (tab:uv-cost, Sec. 4.5)"),
-    "geometry":  (tab_geometry,  "extreme eigenvalues of Mtilde, three cells (tab:geometry, Sec. 5.1)"),
-    "be_M":      (tab_be_M,      "encoding of Mtilde from the gate-level circuit (tab:be-M, Sec. 5.3)"),
-    "inverse":   (tab_inverse,   "the inverse on four sources (tab:inverse, Sec. 5.4)"),
-    "resources": (tab_resources, "logical resources of the inverse (tab:resources, Sec. 5.5)"),
+    "uv_cost":   (tab_uv_cost,   "U_V by stage of the angle oracle (tab:uv-cost, App. B.5)"),
+    "geometry":  (tab_geometry,  "extreme eigenvalues of Mtilde, three cells (tab:geometry, Sec. 4.1)"),
+    "be_M":      (tab_be_M,      "encoding of Mtilde from the gate-level circuit (tab:be-M, Sec. 4.3)"),
+    "inverse":   (tab_inverse,   "the inverse on four sources (tab:inverse, Sec. 4.4)"),
+    "resources": (tab_resources, "logical resources of the inverse (tab:resources, Sec. 4.5)"),
 }
 
 

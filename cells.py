@@ -1,4 +1,4 @@
-"""cells.py -- the three test cells of Sec. 5, applied matrix-free, shared by
+"""cells.py -- the three test cells of Sec. 4, applied matrix-free, shared by
 makeTables.py and makeFigures.py (not a script).
 
     square     centered square inclusion of side N/2, v_f = 1/4 (the worked example)
@@ -10,7 +10,7 @@ Each cell has a material oracle R_chi of O(1) gates, checked on every element.
 Every operator is applied matrix-free (FFT for functions of K, sparse
 A = W^{1/2} G), so the cells reach N = 1024 (N_dof ~ 10^6). The module also
 holds the inverse of Sec. 3.7 (Clenshaw recurrence on q_t), the choice of F
-of Sec. 4.4, and the resource counts of Secs. 4.5 and 5.5.
+of Sec. 3.8, and the resource counts of App. B.5 and Sec. 4.5.
 """
 import numpy as np
 import scipy.sparse as sp
@@ -25,7 +25,7 @@ from verify_inverse import k_function, q_poly
 from verify_square import _B, _CORNERS, assemble
 
 ALPHA = 16 / 3            # subnormalization of the encoding of K^chi / sigma_max (Fig. mesh a)
-DELTA_CONST = 6           # delta <= 6 N 2^-F (Sec. 4.4)
+DELTA_CONST = 6           # delta <= 6 N 2^-F (Sec. 3.8)
 GEOMETRIES = ("square", "cross", "laminate")
 
 
@@ -241,7 +241,7 @@ def lambda_min_Kc(cell, tol=1e-9, seed=0):
 # ==========================================================================
 # 3. the QSVT inverse polynomial applied matrix-free (Sec. 3.7)
 # ==========================================================================
-# q_t is the odd polynomial of Sec. 2.4 at kappa = rho with t = ceil(rho/2 ln(2/eps_p)) (Prop. qsvt-poly),
+# q_t is the odd polynomial of Sec. 2.4 at kappa = rho with t = ceil(rho/2 ln(2/eps_p)) (Sec. 3.7),
 # degree d = 2t - 1. It is applied to Mtilde by the Clenshaw recurrence on its Chebyshev interpolant of
 # degree d, which equals q_t up to rounding, with d applications of Mtilde.
 _PLAN = {}
@@ -258,7 +258,7 @@ def inverse_plan(rho, eps_p):
 
 
 def encoding_bits(N, rho, eps_p):
-    """Sec. 4.4: delta = eps_p / (2 d C), so that the encoding error adds at most eps_p to the energy-norm
+    """Sec. 3.8: delta = eps_p / (2 d C), so that the encoding error adds at most eps_p to the energy-norm
     error, and F = ceil(log2(6 N / delta)) by Eq. (delta-bound)."""
     _, d, _, C = inverse_plan(rho, eps_p)
     delta = eps_p / (2 * d * C)
