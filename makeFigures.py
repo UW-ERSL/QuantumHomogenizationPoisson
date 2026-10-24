@@ -1,13 +1,12 @@
 """makeFigures.py -- the figures of the paper, written to figs/ as PDF.
 
-    python makeFigures.py              all four figures of the paper (about 10 minutes)
+    python makeFigures.py              all three figures of the paper (about 10 minutes)
     python makeFigures.py mesh         just that one
     python makeFigures.py --list       names and destinations
 
 figs/spectrum.pdf       (fig:spectrum, Sec. 2.2)   eigenvalues of K^chi and of M, square, rho = 10
 figs/cells.pdf          (fig:cells, Sec. 5.1)      the three test cells at N = 16
 figs/mesh.pdf           (fig:mesh, Sec. 5.2)       mesh refinement, N = 16 ... 1024, three cells
-figs/isometry_cost.pdf  (fig:isometry-cost, App. A) delta 2^F / N for the 42 cases
 
 Not in the paper, drawn only when named: `circuits` (the readout and QSVT
 circuit figures of the companion paper, circuit_figures.py; needs Qiskit and
@@ -116,6 +115,9 @@ def draw_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=RHO, eps_p=1e-6):
     tof = {r["N"]: r["toffoli_uv"] for r in rows if r["geometry"] == "square"}
     Fs = {r["N"]: r["F"] for r in rows if r["geometry"] == "square"}
     errs = [r["inv_err"] for r in rows]
+    if Ns[0] == 16 and Ns[-1] == 1024:                                                 # Sec. 5.2 (c)
+        assert (Fs[16], Fs[1024], tof[16], tof[1024]) == (39, 45, 33680, 44462), (Fs, tof)
+        assert 4.1e-7 <= min(errs) and max(errs) <= 8.7e-7, (min(errs), max(errs))       # "4.1e-7 to 8.6e-7"
     print(f"mesh: inverse error {min(errs):.2e} to {max(errs):.2e} (eps_p = {eps_p:g}, d = {d0}); "
           f"F = {Fs[Ns[0]]} to {Fs[Ns[-1]]}; Toffolis per U_V {tof[Ns[0]]:,} (N={Ns[0]}) to {tof[Ns[-1]]:,} (N={Ns[-1]})")
 
@@ -138,54 +140,12 @@ def draw_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=RHO, eps_p=1e-6):
     ax[1].text(ndof("square")[0], eps_p * 1.25, r"$\epsilon_p$", fontsize=8)
     ax[1].set_ylim(1e-7, 1e-5); ax[1].set_xlabel(r"$N_{\mathrm{dof}}$")
     ax[1].set_ylabel("relative energy-norm error")
-    ax[1].set_title(f"(b) inverse, cell source, $d = {d0}$", fontsize=9)
+    ax[1].set_title(f"(b) inverse, cell source, $d_t = {d0}$", fontsize=9)
     ax[2].semilogx(ndof("square"), [tof[N] / 1e3 for N in Ns], "-o", color="k", ms=3, lw=1)
     ax[2].set_xlabel(r"$N_{\mathrm{dof}}$"); ax[2].set_ylabel(r"Toffoli gates ($10^3$)")
     ax[2].set_title(r"(c) one application of $\mathcal{U}_V$", fontsize=9)
     ax[2].set_ylim(0, None)
     fig.tight_layout(); fig.savefig("figs/mesh.pdf"); print("figs/mesh.pdf")
-
-
-def draw_isometry():
-    """figs/isometry_cost.pdf: encoding error of U_V (App. A); checks the Toffoli fit of App. A."""
-    from verify_full_unitary import C_BOUND, full_error
-    from quantuminversionpoisson.isometry_circuit import IsometryCircuit
-    Fs = (12, 16, 20, 24, 28, 32)
-    fig, ax0 = plt.subplots(figsize=(3.6, 2.5))
-    ax = [ax0]
-    worst, cases = 0.0, 0
-    shades = np.linspace(0.75, 0.0, 7)
-    for n, g in zip(range(2, 9), shades):
-        N = 2 ** n
-        c = []
-        for F in Fs:
-            blk, full, chk = full_error(n, F)
-            assert chk["work_bits_left_set"] == 0 and chk["inputs_restored"]     # "work register returns to zero"
-            c.append(full * 2.0 ** F / N)
-            cases += 1
-        worst = max(worst, max(c))
-        ax[0].plot(Fs, c, "-o", color=str(g), ms=3, lw=1.0, label=f"$N = {N}$")
-        print(f"isometry: N = {N}: max delta 2^F/N = {max(c):.2f}", flush=True)
-    assert cases == 42 and worst <= C_BOUND and round(worst, 2) == 5.73, worst   # "42 cases", "delta <= 6 N 2^-F"
-    ax[0].axhline(C_BOUND, color="0.4", lw=0.8, ls="--")
-    ax[0].text(12.3, C_BOUND * 1.04, r"$\delta = 6N\,2^{-F}$", fontsize=8)
-    ax[0].set_xlabel("fractional bits $F$"); ax[0].set_ylabel(r"$\delta\,2^{F}/N$")
-    ax[0].set_xticks(Fs); ax[0].set_ylim(0, 9.5)
-    ax[0].legend(loc="upper center", frameon=False, ncol=4, fontsize=6.5,
-                 columnspacing=0.8, handlelength=1.5, bbox_to_anchor=(0.5, 1.02))
-
-    Fr = np.arange(12, 37)
-    dev, resid = 0.0, None
-    for n in range(2, 11):                                                         # N = 4 ... 1024
-        T = np.array([IsometryCircuit(n=n, F=F).resources()["toffoli_total"] for F in Fr])
-        fit = 20.5 * Fr ** 2 + 64 * Fr + 41 + 4 * n
-        dev = max(dev, np.max(np.abs(T - fit) / T))
-        if resid is None:
-            resid = T - fit
-        assert np.allclose(T - fit, resid)                 # N enters only through 4 log2 N
-    assert round(100 * dev, 2) == 0.43, dev                                        # "within 0.43 percent"
-    fig.tight_layout(); fig.savefig("figs/isometry_cost.pdf")
-    print(f"figs/isometry_cost.pdf: worst delta 2^F/N = {worst:.2f}, worst fit deviation {100 * dev:.2f}%")
 
 
 def T(t, z):
@@ -219,7 +179,7 @@ def draw_qsvt_poly():
         ax[0].axvline(v, color="0.7", lw=0.6)
     ax[0].set_xlim(-1, 1); ax[0].set_ylim(-1.6 * RHO, 1.6 * RHO); ax[0].set_xlabel("$x$")
     ax[0].legend(loc="upper left", frameon=False)
-    ax[0].set_title(f"(a) $q_t$ of degree $d = {2 * t - 1}$", fontsize=9)
+    ax[0].set_title(f"(a) $q_t$ of degree $d_t = {2 * t - 1}$", fontsize=9)
     ax[1].semilogy(xp, res + 1e-18, "k", lw=0.8)
     ax[1].axhline(eps, color="0.5", lw=0.8, ls="--")
     ax[1].text(0.115, eps * 1.6, r"$\epsilon_p = 10^{-3}$", fontsize=8)
@@ -267,7 +227,6 @@ FIGURES = {
     "spectrum":  (draw_spectrum,  "eigenvalues of K^chi and of M (fig:spectrum, Sec. 2.2)"),
     "cells":     (draw_cells,     "the three test cells (fig:cells, Sec. 5.1)"),
     "mesh":      (draw_mesh,      "mesh refinement, N = 16 ... 1024 (fig:mesh, Sec. 5.2)"),
-    "isometry":  (draw_isometry,  "encoding error of U_V (fig:isometry-cost, App. A)"),
 }
 EXTRA = {
     "circuits":  (draw_circuits,  "readout and QSVT circuits (companion paper; Qiskit, pyqsp)"),

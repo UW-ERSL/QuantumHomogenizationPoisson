@@ -2,9 +2,11 @@
 #   python -m pip install -r requirements.txt
 numpy>=1.26
 scipy>=1.11
+# the wavenumber-controlled stage of U_V (companion paper)
+binary_to_amplitude @ git+https://github.com/UW-ERSL/BinaryToAmplitude
 # makeFigures.py
 matplotlib>=3.7
-# Optional: the independent Qiskit Aer cross-check (verify_isometry.py --aer)
+# Optional: companion-paper scripts (verify_qiskit_qsvt.py)
 qiskit>=1.0
 qiskit-aer>=0.15
 # Optional: verify_qiskit_qsvt.py (QSP phases)

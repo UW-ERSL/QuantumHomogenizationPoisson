@@ -1,69 +1,20 @@
-"""verify_isometry -- checks for the gate-level circuit U_V (Sec. 3.5, App. A).
+"""verify_isometry -- checks for the gate-level circuit U_V (Secs. 3.5 and 3.8).
 
     python verify_isometry.py          # about 1 minute
-    python verify_isometry.py --aer    # adds the Qiskit Aer cross-check
 
-1. Reversible arithmetic: adder exhaustive, shifted add/subtract exhaustive,
-   CORDIC rotation and vectoring.
-2. Closed-form factorization Vhat(k) = e^{i(phi1+phi2)} T Romega Rsplit Rtau |0>,
-   exact angles, every k, N = 8 and 64. No fitting.
-3. The circuit, simulated gate by gate: work register returns to zero, Q(0)
-   maps |0> to |8>, and the dense U_V (with the QFT built from gates) against
-   V = W^{1/2} G (K^+)^{1/2} assembled element by element.
-4. Error and Toffoli count against N and bit width F.
+1. Closed-form factorization Vhat(k) = e^{i(phi1+phi2)} T c(k)/||c(k)||,
+   c = (a, b, zeta/sqrt3, zeta/sqrt3), every k, N = 8 and 64. No fitting.
+2. The circuit, simulated gate by gate: work register returns to zero, Q(0)
+   maps |0> into the unused states 8..15, and the dense U_V (with the QFT built
+   from gates) against V = W^{1/2} G (K^+)^{1/2} assembled element by element.
+3. Error and Toffoli count against N and bit width F.
+The arithmetic of the wavenumber-controlled stage is that of the companion
+paper (package binary_to_amplitude), whose repository checks it in detail.
 """
-import itertools
-import sys
-
 import numpy as np
 
-from quantuminversionpoisson.revcirc import (Circuit, BitSim, cuccaro, add_view, shr,
-                                             cordic_rotate, cordic_vector,
-                                             cordic_gain, to_int, load_select)
-from quantuminversionpoisson.isometry_circuit import (IsometryCircuit, T_matrix, canonical,
-                                                      exact_angles, vhat_exact,
+from quantuminversionpoisson.isometry_circuit import (IsometryCircuit, T_matrix, vhat_exact,
                                                       end_to_end_error)
-
-
-def arithmetic():
-    w = 5
-    c = Circuit(); a, b, cin = c.alloc(w), c.alloc(w), c.alloc(1)
-    cuccaro(c, a, b, cin[0])
-    A, B, C = np.array(list(itertools.product(range(2 ** w), range(2 ** w), range(2)))).T
-    s = BitSim(c.n, len(A)); s.set_int(a, A); s.set_int(b, B); s.set_int(cin, C); s.run(c.gates)
-    ok1 = np.all(s.get_int(b, False) == (A + B + C) % 2 ** w) and np.all(s.get_int(a, False) == A)
-
-    w = 6; ok2 = True
-    for i in range(4):
-        c = Circuit(); x, y, e = c.alloc(w), c.alloc(w), c.alloc(1)
-        add_view(c, x, shr(y, i), neg=e[0])
-        X, Y, E = np.array(list(itertools.product(range(2 ** w), range(2 ** w), range(2)))).T
-        s = BitSim(c.n, len(X)); s.set_int(x, X); s.set_int(y, Y); s.set_int(e, E); s.run(c.gates)
-        ys = np.where(Y >> (w - 1), Y - 2 ** w, Y) >> i
-        ok2 &= bool(np.all(s.get_int(x, False) == np.where(E == 1, X - ys, X + ys) % 2 ** w))
-        ok2 &= all(s.get_bits(q).max() == 0 for q in range(c.n) if q not in x + y + e)
-
-    F, wd = 16, 20
-    c = Circuit(); x, y, z = c.alloc(wd), c.alloc(wd), c.alloc(F + 1)
-    K = cordic_gain(F)
-    load_select(c, x, to_int(1 / K, F, wd), to_int(1 / K, F, wd), x[0])
-    cordic_rotate(c, x, y, z, F, F, F)
-    ang = np.linspace(-0.5, 0.5, 2001); zi = np.round(ang * 2 ** F).astype(int)
-    s = BitSim(c.n, len(ang)); s.set_int(z, zi); s.run(c.gates)
-    th = zi / 2 ** F * np.pi
-    e_rot = max(np.abs(s.get_int(x) / 2 ** F - np.cos(th)).max(),
-                np.abs(s.get_int(y) / 2 ** F - np.sin(th)).max())
-
-    c = Circuit(); x, y = c.alloc(wd), c.alloc(wd)
-    d = cordic_vector(c, x, y, F)
-    rng = np.random.default_rng(1)
-    Xi = np.round(rng.uniform(0, 1, 3000) * 2 ** F).astype(int)
-    Yi = np.round(rng.uniform(-1, 1, 3000) * 2 ** F).astype(int)
-    s = BitSim(c.n, 3000); s.set_int(x, Xi); s.set_int(y, Yi); s.run(c.gates)
-    al = np.arctan(2.0 ** -np.arange(F))
-    got = sum((1 - 2 * s.get_bits(di)) * al[i] for i, di in enumerate(d))
-    e_vec = (np.abs(got - np.arctan2(Yi, Xi)) * np.hypot(Xi, Yi) / 2 ** F).max()
-    return ok1, ok2, e_rot, e_vec
 
 
 def factorization():
@@ -73,7 +24,10 @@ def factorization():
             for k2 in range(N):
                 if k1 == k2 == 0:
                     continue
-                v = np.exp(1j * np.pi * (k1 + k2) / N) * (T @ canonical(*exact_angles(N, k1, k2)))
+                f1, f2 = np.pi * k1 / N, np.pi * k2 / N
+                a, b, z = np.sin(f1) * np.cos(f2), np.cos(f1) * np.sin(f2), np.sin(f1) * np.sin(f2)
+                c = np.zeros(16); c[:4] = a, b, z / np.sqrt(3), z / np.sqrt(3)
+                v = np.exp(1j * (f1 + f2)) * (T @ (c / np.linalg.norm(c)))
                 worst = max(worst, np.abs(v[:8] - vhat_exact(N, k1, k2)).max(), np.abs(v[8:]).max())
     return worst
 
@@ -84,7 +38,7 @@ def circuit_checks():
         c = IsometryCircuit(n, F=24)
         Q, chk = c.simulate()
         q, e, _ = end_to_end_error(c, Q)
-        zero = np.abs(Q[0][:, 0] - np.eye(16)[8]).max()
+        zero = np.linalg.norm(Q[0][:8, 0])                 # Q(0)|0> in the states 8..15
         out.append((c.N, chk["work_bits_left_set"], chk["inputs_restored"], zero, q, e))
     return out
 
@@ -105,19 +59,11 @@ def scaling():
 
 if __name__ == "__main__":
     print("----- output --------------------------------------------------")
-    ok1, ok2, er, ev = arithmetic()
-    print(f"adder exhaustive (w=5)            {ok1}")
-    print(f"shifted add/sub exhaustive (w=6)  {ok2}")
-    print(f"CORDIC rotation  F=16  max err    {er:.1e}")
-    print(f"CORDIC vectoring F=16  r*|dang|   {ev:.1e}")
     print(f"closed-form factorization, N=8 and 64: {factorization():.1e}")
     for N, dirty, rest, zero, q, e in circuit_checks():
         print(f"N={N:<3} F=24  work bits left set {dirty}  inputs restored {rest}  "
-              f"|Q(0)|0> - |8>| {zero:.0e}  QFT circuit {q:.1e}  ||Pi U_V Pi - V||_2 {e:.2e}")
+              f"|Q(0)|0> on 0..7| {zero:.0e}  QFT circuit {q:.1e}  ||Pi U_V Pi - V||_2 {e:.2e}")
     print(f"{'N':>5} {'F':>4} {'block err':>10} {'clean':>6} {'Toffoli':>9} {'wires':>7}")
     for N, F, d, cl, t, w in scaling():
         print(f"{N:>5} {F:>4} {d:>10.2e} {str(cl):>6} {t:>9,} {w:>7,}")
-    if "--aer" in sys.argv:
-        import runpy
-        runpy.run_path("verify_isometry_aer.py", run_name="__main__")
     print("---------------------------------------------------------------")

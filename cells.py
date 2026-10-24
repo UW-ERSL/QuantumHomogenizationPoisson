@@ -295,7 +295,8 @@ def uv_counts(N, F):
     if (N, F) not in _UV:
         n = int(np.log2(N))
         r = IsometryCircuit(n=n, F=F).resources()
-        _UV[N, F] = dict(toffoli=r["toffoli_total"], cordic_rot=2 * F + 1 + 3,
+        _UV[N, F] = dict(toffoli=r["toffoli_total"],
+                         cordic_rot=r["controlled_rotations"] + r["fixed_rotations"],
                          qft_rot=2 * 2 * n * (n - 1) // 2, phase_rot=r["phase_gates"],
                          qubits=r["wires"])
     return _UV[N, F]

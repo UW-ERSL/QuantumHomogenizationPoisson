@@ -7,6 +7,7 @@ setup(
     url="https://github.com/UW-ERSL/QuantumHomogenizationPoisson",
     packages=["quantuminversionpoisson"],
     python_requires=">=3.10",
-    install_requires=["numpy", "scipy"],
+    install_requires=["numpy", "scipy",
+                      "binary_to_amplitude @ git+https://github.com/UW-ERSL/BinaryToAmplitude"],
     extras_require={"aer": ["qiskit>=1.0", "qiskit-aer"]},
 )

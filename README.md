@@ -4,7 +4,7 @@ Code for the paper *A Preconditioned Quantum Linear Solver for Periodic
 Two-Phase Heat Conduction with Mesh-Independent Condition Number*
 (K. Suresh). Every number the paper reports is reproduced by the scripts
 below: every table by `makeTables.py`, every figure by `makeFigures.py`,
-and the checks of Secs. 2-3 and Appendix A by the `verify_*.py` scripts.
+and the checks of Secs. 2-3 by the `verify_*.py` scripts.
 
 For a periodic two-phase Q4 conduction cell with conductivity contrast `rho`,
 the cell-problem operator preconditioned by the homogeneous operator `K`,
@@ -16,7 +16,7 @@ isometry and `Sigmatilde` is diagonal. Because `K` is circulant, `V` is a
 quantum Fourier transform pair around one unit vector of length 8 per
 wavenumber. The resulting block encoding of `M` has subnormalization 1 and
 condition number at most `rho` for every mesh size `N`, and QSVT with the
-odd inverse polynomial `q_t` of degree `d = 2t - 1` block-encodes its inverse
+odd inverse polynomial `q_t` of degree `d_t = 2t - 1` block-encodes its inverse
 with relative energy-norm error at most `eps_p + 2 d C delta`.
 
 The paper stops at the block encoding of the inverse. Reading out a quantity
@@ -24,8 +24,12 @@ of interest (the effective conductivity) is the subject of a companion paper;
 the readout scripts are kept in this repository for that paper (see
 "Companion-paper code" below).
 
-This repository builds the wavenumber-controlled stage of `U_V` at gate level,
-verifies the encoding of `M` and the inverse against the finite element
+This repository builds `U_V` at gate level, with the wavenumber-controlled
+stage of the companion paper *Multiplexed state preparation of the Fourier
+blocks of the periodic Poisson isometry* (package
+[`binary_to_amplitude`](https://github.com/UW-ERSL/BinaryToAmplitude),
+installed by `requirements.txt`),
+and verifies the encoding of `M` and the inverse against the finite element
 solution, and runs the numerical experiments of the paper on three dyadic
 cells (square, cross, laminate) up to N = 1024. The Python package keeps its
 original name, `quantuminversionpoisson`.
@@ -43,9 +47,9 @@ cross-checks it.
     cd QuantumHomogenizationPoisson
     pip install -r requirements.txt
 
-Only numpy and scipy are required for the package; matplotlib for
-`makeFigures.py`; pyblockencode (optional, not in `requirements.txt`) for the
-cross-check of `alpha` in `verify_square.py`; Qiskit and Qiskit Aer for the Aer cross-checks; and pyqsp
+The package requires numpy, scipy, and `binary_to_amplitude`; matplotlib is
+needed for `makeFigures.py`; pyblockencode (optional, not in `requirements.txt`)
+for the cross-check of `alpha` in `verify_square.py`; Qiskit, Qiskit Aer, and pyqsp
 for the companion-paper script `verify_qiskit_qsvt.py` and the circuit
 figures of `makeFigures.py circuits`; neither is needed for the paper. On Debian or Ubuntu system Python, pyqsp fails to
 build (`AttributeError: install_layout` from the system setuptools); install
@@ -70,7 +74,7 @@ err, d = cells.inverse_error(cell, eps_p=1e-6)     # q_t(Mtilde), matrix-free
 print(hi / lo, d, err)                             # 10.0, 145, 5.03e-07
 
 v = cells.inverse_resources("square", N=1024, rho=10.0, eps_p=1e-6)
-print(v["F"], v["toffoli_per_query"], v["qubits"]) # 45, 89022, 5701
+print(v["F"], v["toffoli_per_query"], v["qubits"]) # 45, 88926, 5699
 ```
 
 The second checks the gate-level circuit `U_V` at N = 16 and F = 24 against
@@ -89,9 +93,8 @@ print(checks, err, circ.resources()["toffoli_total"])
 ```
 
     python -m quantuminversionpoisson.fourier_symbol   # Sec. 2.2: symbol against assembly, seconds
-    python verify_isometry.py          # Sec. 3.5, App. A: circuit checks, about 15 seconds
-    python verify_isometry.py --aer    # adds the Qiskit Aer cross-check, about 4 minutes
-    python verify_full_unitary.py      # Sec. 3.8, App. A: full-unitary error of U_V, about 6 minutes
+    python verify_isometry.py          # Secs. 3.5, 3.8: circuit checks, about 30 seconds
+    python verify_full_unitary.py      # Sec. 3.8: encoding error of U_V, 42 cases, a few minutes
     python verify_qsvt_degree.py       # Sec. 3.7: QSVT degree and sup norm, a few seconds
     python verify_square.py            # Sec. 3.6: condition numbers and gate-level encoding of M, about 4 minutes
     python verify_inverse.py           # Sec. 3.7: the inverse on four heat sources, about 1 minute
@@ -100,30 +103,27 @@ print(checks, err, circ.resources()["toffoli_total"])
     python makeFigures.py              # every figure of the paper to figs/, about 10 minutes
     python makeFigures.py mesh         # one figure; --list for the names
 
-`tables/` and `figs/` are generated, not committed. The paper uses five tables,
-`uv_cost` (tab:uv-cost, App. A.2), `geometry` (Sec. 5.1), `be_M` (Sec. 5.3),
-`inverse` (Sec. 5.4) and `resources` (Sec. 5.5), and four figures,
-`spectrum` (Sec. 2.2), `cells` (Sec. 5.1), `mesh` (Sec. 5.2) and
-`isometry_cost` (App. A). Both scripts assert every number the text quotes
+`tables/` and `figs/` are generated, not committed. The paper uses four tables,
+`geometry` (Sec. 5.1), `be_M` (Sec. 5.3), `inverse` (Sec. 5.4) and
+`resources` (Sec. 5.5), and three figures, `spectrum` (Sec. 2.2), `cells`
+(Sec. 5.1) and `mesh` (Sec. 5.2). Both scripts assert every number the text quotes
 about them before writing. `python makeFigures.py circuits qsvt_poly angles`
 draws figures the paper does not use: the readout and QSVT circuit figures
 of the companion paper (`circuit_figures.py`, quantikz, needs Qiskit and
 pyqsp), the polynomial `q_t`, and the two angles over the wavenumbers.
 Table 1 of the paper (symbols) is not generated. Files in
 `tables/` or `figs/` left by earlier versions (for example `crossover.pdf`,
-`contrast.tex`) are not used.
+`contrast.tex`, `uv_cost.tex`, `isometry_cost.pdf`) are not used.
 
 ## Layout
 
 | File | Contents |
 |---|---|
 | `quantuminversionpoisson/fourier_symbol.py` | Closed-form scalar symbol of `K` (Eq. symbol-entries), functions of `K` by FFT, `K` assembled element by element |
-| `quantuminversionpoisson/revcirc.py` | X/CX/CCX reversible fixed-point arithmetic (Gidney adders by default, `ADDER = "cuccaro"` for the ripple-carry count; CORDIC), bit-packed simulator; unchanged from the elasticity package |
-| `docs/angle_oracle.md` | The angle oracle of `U_V` in detail: CORDIC modes, reversible arithmetic, the five stages, a trace at k = (3, 1), and the encoding-error bound with its proof (App. A of the paper in brief) |
-| `quantuminversionpoisson/isometry_circuit.py` | Closed-form factorization of `Vhat(k)` into two angles; the gate-level circuit `U_V`; dense reference `V` |
-| `verify_isometry.py` | Arithmetic, factorization, circuit, and scaling checks |
-| `verify_isometry_aer.py` | The exported circuit in Qiskit Aer (MPS) for every wavenumber at N = 4 |
-| `verify_full_unitary.py` | (App. A) Full 16 x 16 error of the wavenumber-controlled stage against the exact-angle unitary (42 cases), and the Toffoli count |
+| `quantuminversionpoisson/revcirc.py` | X/CX/CCX reversible fixed-point arithmetic and a bit-packed simulator; no longer used by `U_V` (its arithmetic is that of `binary_to_amplitude`), kept for `verify_readout.py` |
+| `quantuminversionpoisson/isometry_circuit.py` | `Vhat(k)` in closed form, `V` assembled element by element, the fixed unitary `T` of `Vhat(k) = e^{i(phi1+phi2)} T c(k)/||c(k)||`, and the gate-level circuit `U_V` (Prop. gate): `binary_to_amplitude.poisson_isometry` for `c(k)/||c(k)||`, `T`, the phase, and the zero-mode flag |
+| `verify_isometry.py` | Factorization, circuit, and scaling checks |
+| `verify_full_unitary.py` | (Sec. 3.8) Encoding error `delta` of the wavenumber-controlled stage (42 cases) and the exact unitary of Prop. gate (iii) |
 | `verify_qsvt_degree.py` | Degree and sup norm of the odd QSVT inverse polynomial against the bounds of Sec. 3.7 (independent of the PDE) |
 | `verify_square.py` | Condition numbers of `K^chi`, of a separately encoded preconditioner, and of the preconditioned operator; the encoding of `Mtilde` from the gate-level circuit; square inclusion |
 | `verify_inverse.py` | The preconditioned inverse applied to four heat sources, against the finite element solution in the energy norm, with exact `Mtilde` and with the gate-level block |
@@ -131,54 +131,44 @@ Table 1 of the paper (symbols) is not generated. Files in
 | `verify_qiskit_qsvt.py` | (companion paper) The readout circuit built entirely in Qiskit at N = 4, rho = 3: `U_V` (QFT, multiplexed `Q(k)`), `U_Sigma`, `U_M`, the QSVT sequence with pyqsp phases for `q_t`, flags; blocks checked against `Mtilde` and `q_t(Mtilde)/alpha_q`, and the all-zero probability sampled in Aer |
 | `verify_lsq_readout.py` | (companion paper) The least-squares readout `sigma^H/sigma_max = g^T (I - Pi) g` (even polynomial `f = (r_t + e_t)/(1 + e_t)`, one `U_V` per query): dense identity check, gate-level `U_V` emulation with pyqsp phases to d = 640, amplitude estimation from its exact distribution, shifted polynomial `A >= 0` |
 | `cells.py` | Module, not a script: the three test cells (square, cross, laminate) with operators applied matrix-free up to N = 1024, the `R_chi` gate networks checked on every element, the inverse by a Clenshaw recurrence on the Chebyshev interpolant of `q_t`, the choice of F, and the resource counts |
-| `makeTables.py` | The five tables of the paper: `uv_cost` (from `IsometryCircuit.stage_counts()`), `geometry`, `be_M`, `inverse` (N <= 64, dense checks), `resources`; every number the text quotes about them asserted |
-| `makeFigures.py` | The four figures of the paper: `spectrum`, `cells`, `mesh` (N = 16 ... 1024, asserting every number of Sec. 5.2), `isometry_cost` (`delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.43%); on request, the figures the paper does not use |
+| `makeTables.py` | The four tables of the paper: `geometry`, `be_M`, `inverse` (N <= 64, dense checks), `resources`; every number the text quotes about them asserted |
+| `makeFigures.py` | The three figures of the paper: `spectrum`, `cells`, `mesh` (N = 16 ... 1024, asserting every number of Sec. 5.2); on request, the figures the paper does not use |
 | `circuit_figures.py` | The readout and QSVT circuit figures of the companion paper, called by `makeFigures.py circuits` |
 
 The paper and the scripts write the subnormalization of the QSVT polynomial,
 `max |q_t|` on [-1, 1], as `C` (`alpha_q` in the companion-paper scripts).
 
-## Factorization (App. A.1)
+## Factorization (Sec. 3.8)
 
 With `phi_j = pi k_j / N`, `a = sin phi1 cos phi2`, `b = cos phi1 sin phi2`,
-`zeta = sin phi1 sin phi2` and `r = (a^2 + b^2)^{1/2}`,
+`zeta = sin phi1 sin phi2`,
 
-    Vhat(k) = e^{i(phi1 + phi2)} T . Romega(omega) . Rsplit . Rtau(tau) |0>,
+    Vhat(k) = e^{i(phi1 + phi2)} T c(k) / ||c(k)||,   c = (a, b, zeta/sqrt3, zeta/sqrt3),
 
-    omega = atan2(b, a),   tau = atan2(sqrt(2/3) zeta, r),
-
-where `Rtau` rotates the planes (|0>,|2>) and (|1>,|3>), `Rsplit` rotates
-(|2>,|3>) by pi/4, `Romega` rotates (|0>,|1>), and `T` is a fixed unitary
-whose first four columns are the mean gradients and the two hourglass
-patterns. All three rotations act only on states with b3 = 0, so `Q(0)` maps
-|0> to |8> exactly. The two angles come from two CORDIC rotations of
-`pi (k1 +- k2) / N` and two CORDIC vectorings; the decision bits control the
-rotations directly, and the arithmetic is then reversed so that every work
-wire returns to zero.
-
-The gate-level detail that the paper leaves out, the two CORDIC modes with a
-worked example, the changes for reversible arithmetic, the five stages of the
-angle oracle bit by bit, the register values at one wavenumber, and the
-encoding-error bound with its proof, is in
-[`docs/angle_oracle.md`](docs/angle_oracle.md).
+where `T` is a fixed unitary whose first four columns are the mean gradients
+and the two hourglass patterns. The circuit prepares `c(k)/||c(k)||` with the
+multiplexed CORDIC circuit of the companion paper on the local qubits
+(b1, b0), applies `T` and the phase, and for k = 0 first flips b3, so that
+`Q(0)` maps |0> into the unused states 8..15. Neither `T` nor the preparation
+acts on b3. The arithmetic is then reversed, so that every work wire returns
+to zero. The CORDIC construction, its proofs, and its checks are in the
+companion paper and its repository.
 
 ## Implementation checks
 
-**Symbol and isometry (Secs. 2.2, 3.4-3.5, App. A).**
+**Symbol and isometry (Secs. 2.2, 3.4-3.5, 3.8).**
 
 - Symbol against the assembled `K` to 4.4e-16, N = 4 ... 32; smallest nonzero
   eigenvalue `2 (1 - cos(2 pi / N))`, attained at k = (1, 0).
-- Adders exhaustively; CORDIC to its truncation error.
 - Closed-form factorization to 1.1e-15 for every `k` at `N` = 8 and 64.
 - Gate-level simulation for every `k`, `N` = 4 ... 256, `F` = 12, 16, ..., 32
   (42 cases): work register clean and inputs restored in every case; error
-  `delta <= 6 N 2^-F` (largest measured `delta 2^F / N` = 5.73, at N = 4,
-  from the wavenumber (N/2, N/2)), where `delta` is the full 16 x 16 error
-  against the exact-angle unitary, at most 1.26 times the block error.
+  `delta <= 6 N 2^-F` (largest measured `delta 2^F / N` = 5.73, at N = 4),
+  where `delta` is the error of the first column of `Q(k)`; an exact unitary
+  with the exact first column lies within `delta(k)` of each `Q(k)` (Prop.
+  gate (iii)).
 - Dense `U_V`, with the QFT built from gates, against `V` assembled element by
   element (N = 8, 16), to 1.1e-6 at F = 24.
-- The exported 594-qubit circuit in Qiskit Aer (MPS) for every `k` at N = 4,
-  agreeing to 6.5e-10.
 
 **Preconditioned operator and its inverse (Secs. 3.6-3.7, 5.3-5.4).**
 
@@ -190,14 +180,14 @@ encoding-error bound with its proof, is in
   gate-level circuit matches `Mtilde = M + sbar Pi_0` to below `2 delta`, and
   its extreme eigenvalues equal `1/rho` and 1 to 13 digits.
 - QSVT inverse polynomial (odd, Gribling et al. Cor. 12):
-  `t = ceil((rho/2) ln(2/eps_p))`, `d = 2t - 1`; at rho = 10, d = 77 with
-  `C = max |q_t|` = 13.19 = 1.32 rho (eps_p = 1e-3) and d = 145 with
+  `t = ceil((rho/2) ln(2/eps_p))`, `d_t = 2t - 1`; at rho = 10, d_t = 77 with
+  `C = max |q_t|` = 13.19 = 1.32 rho (eps_p = 1e-3) and d_t = 145 with
   C = 17.64 = 1.76 rho (eps_p = 1e-6).
 - Preconditioned inverse (exact `Mtilde`, and the gate-level block at N = 8, 16):
   relative energy-norm error <= eps_p = 1e-6 for smooth, random, cell-problem
   and worst-case sources, N = 8 ... 64, rho = 10; the worst-case source
   attains the residual 8.69e-7 of the polynomial; the gate-level block changes
-  the errors by at most 1.2e-7 (F = 24) and 2.8e-9 (F = 32).
+  the errors by at most 1.2e-7 (F = 24) and 2.7e-9 (F = 32).
 
 ## Numerical experiments (Sec. 5)
 
@@ -212,35 +202,32 @@ Toffolis.
   1e4.
 - **Mesh (rho = 10, N = 16 ... 1024, Sec. 5.2):** `kappa(Mtilde) = 10` to ten
   digits; `kappa(K^chi)` seen by QSVT grows by 4.00 per doubling to 1.2e6;
-  the inverse at the fixed degree d = 145 (eps_p = 1e-6) has relative
+  the inverse at the fixed degree d_t = 145 (eps_p = 1e-6) has relative
   energy-norm error 4.1e-7 to 8.6e-7 for the cell-problem source of each cell;
   with F from `F = ceil(log2(12 N d C / eps_p))`, F = 39 ... 45 and the
-  Toffolis per `U_V` grow from 33,722 to 44,510.
+  Toffolis per `U_V` grow from 33,680 to 44,462.
 - **Gate-level encoding and the inverse (N <= 64, Secs. 5.3-5.4):** see the
   checks above (`makeTables.py be_M inverse`).
 - **Resources (N = 1024, rho = 10, Sec. 5.5):** per query to the encoding of
-  `Mtilde` (two `U_V`, one `R_chi`): 89,022 Toffolis and 590 rotations at
-  eps_p = 1e-6 (d = 145, F = 45), 51,926 and 546 at eps_p = 1e-3 (d = 77,
-  F = 34); the inverse costs 1.3e7 and 4.0e6 Toffolis on 5,701 and 3,578
+  `Mtilde` (two `U_V`, one `R_chi`): 88,926 Toffolis and 588 rotations at
+  eps_p = 1e-6 (d_t = 145, F = 45), 51,852 and 544 at eps_p = 1e-3 (d_t = 77,
+  F = 34); the inverse costs 1.3e7 and 4.0e6 Toffolis on 5,699 and 3,576
   logical qubits. Not included: rotation synthesis, the QSVT phase rotations,
   and loading of the microstructure beyond `R_chi`.
 
 ## Cost per application of U_V
 
-Toffoli ~ 20.5 F^2 + 64 F + 41 + 4 log2 N, within 0.43% for 12 <= F <= 36
-(the CSD digits of the constant sqrt(2/3) depend on F, so the count is not an
-exact quadratic), Gidney adders; with `revcirc.ADDER = "cuccaro"` the count is
-about 2.05 times larger. `F = ceil(log2(6 N / delta))` for full-unitary error
-`delta`; 2F + 1 controlled single-qubit rotations. For the inverse,
-`delta = eps_p / (2 d C)`, so `F = ceil(log2(12 N d C / eps_p))`. For N = 1024:
-F = 34, 25,962 Toffolis (circuit count), 3,575 wires; F = 45, 44,510 Toffolis,
-5,698 wires.
-The four CORDIC runs, computed and uncomputed, use exactly 20 F^2 + 48 F
-Toffolis (42,660 at F = 45, 96%); `IsometryCircuit.stage_counts()` gives the
-count and the work-register qubits by stage (tab:uv-cost of App. A.2).
-Rotations per application: 2F + 4 in the angle oracle, 4 n (n - 1) / 2
-controlled phases in the two 2D Fourier transforms, and 2n phase gates for
-e^{i(phi1+phi2)}.
+Toffoli = 20 F^2 + 59 F + 21 + 2 (F + 3)(s - 1) + 2 (2n - 1), with `s` the
+number of signed digits of the constant sqrt(2/3) K on F bits (s = 14 at
+F = 45) and `n = log2 N`: Theorem 1 of the companion paper plus the zero-mode
+flag; work register 2 F^2 + 35 F + 47 qubits. For the inverse,
+`delta = eps_p / (2 d C)` and `delta <= 6 N 2^-F`, so
+`F = ceil(log2(12 N d C / eps_p))`. For N = 1024: F = 34, 25,925 Toffolis;
+F = 45, 44,462 Toffolis on 5,696 qubits (5,672 work, 20 position, 4 local).
+The four CORDIC runs, computed and uncomputed, use 20 F^2 + 48 F Toffolis
+(42,660 at F = 45, 96%). Rotations per application: 2F + 1 controlled and 2
+fixed in the wavenumber-controlled stage, 4 n (n - 1) / 2 controlled phases in
+the two 2D Fourier transforms, and 2n phase gates for e^{i(phi1+phi2)}.
 
 ## What is NOT established
 
@@ -248,16 +235,16 @@ e^{i(phi1+phi2)}.
    synthesis is not included.
 2. **Qubit count:** intermediate CORDIC values are kept until the final
    uncomputation; pebbling is not applied.
-3. **Error constant:** `delta <= 6 N 2^-F` is measured in every case tested
-   (App. A); the paper states `F = log2 N + log2(1/delta) + O(1)` and does not
-   prove the constant.
+3. **Error constant:** `delta <= 6 N 2^-F` is measured in every case tested;
+   the companion paper proves a bound of the same form with a larger constant
+   (about 2.7e3 at F = 45), and `F` is chosen from the measured bound.
 4. **QSVT phases at scale:** the inverse is applied as the polynomial
    `q_t(Mtilde)` (Clenshaw recurrence, or the dense block of the gate-level
-   circuit); the phase factors of `q_t` at d = 145 are not computed.
+   circuit); the phase factors of `q_t` at d_t = 145 are not computed.
 5. **Readout:** the paper builds the block encoding of the inverse only; no
    quantity of interest is read out (companion paper).
 6. **Geometry and dimension:** only dyadic cells (square, cross, laminate),
-   isotropic phases, and D = 2 are implemented; non-dyadic inclusions need
+   isotropic phases, and d = 2 are implemented; non-dyadic inclusions need
    material oracles that are not constructed here.
 7. **Gate counts:** single-qubit rotations are counted before synthesis into
    Clifford and T gates; no comparison with classical solvers is made, and for
@@ -268,8 +255,10 @@ e^{i(phi1+phi2)}.
 Scalar temperature, one unknown per node, `N_dof = N^2`. The DFT has entries
 `N^-1 e^{-2 pi i k.j/N}`. Local index `2 g + c` for Gauss point `g` and
 gradient component `c` (x, y); node and element `(i, j)` have index
-`i N + j`, with `i` along `x`. `W = w I`, `w = h^2 / 4`. Section, table, and
-figure numbers refer to the paper as of 2026-10-18.
+`i N + j`, with `i` along `x`. `W = w I`, `w = h^2 / 4`. The degree of
+`q_t` is `d_t` in the paper and `d` in the code; `d` in the paper is the
+spatial dimension. Section, table, and figure numbers refer to the paper as
+of 2026-10-23.
 
 ## Companion-paper code
 
@@ -307,5 +296,4 @@ a companion paper and is not used by the current paper. Their results, as of
   amplitude equals `psi^T q_t(Mtilde) psi / alpha_q` and gives
   `sigma^H / sigma_max` = 0.434186 against the finite element 0.434028
   (relative error 2.4e-3 < eps_p in the correction); 2e5 Aer shots give
-  0.4288 +- 0.0074 (95%). `Q(k)` enters at exact angles; its arithmetic is
-  checked by `verify_isometry_aer.py`.
+  0.4288 +- 0.0074 (95%). `Q(k)` enters at exact angles.

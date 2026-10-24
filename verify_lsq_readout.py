@@ -22,9 +22,8 @@ import numpy as np
 from numpy.polynomial import chebyshev as C
 
 sys.path.insert(0, os.environ.get("QHP_REPO", os.path.dirname(os.path.abspath(__file__))))
-import quantuminversionpoisson.revcirc as rc
-rc.ADDER = "gidney"
 from quantuminversionpoisson import IsometryCircuit, Q_exact, V_assembled
+from verify_full_unitary import exact_unitaries
 from quantuminversionpoisson.isometry_circuit import assemble_G
 
 RUNS = 20000
@@ -181,13 +180,12 @@ def f_apply(ref, r, v):
     return v - ref["U"] @ c + ref["U"] @ (r(ref["sv"] ** 2) * c)
 
 
-def exact_Q(N, circ=None):
+def exact_Q(N):
     Q = np.zeros((N * N, 16, 16), complex)
     Q[0] = Q_ZERO
     for kk in range(1, N * N):
         k1, k2 = divmod(kk, N)
-        om = circ.decoded["omega"][kk] if (circ is not None and k1 == k2 == N // 2) else None
-        Q[kk] = Q_exact(N, k1, k2, om)
+        Q[kk] = Q_exact(N, k1, k2)
     return Q
 
 
@@ -242,8 +240,7 @@ def part2():
             circ = IsometryCircuit(n=n, F=F)
             Q, chk = circ.simulate()
             assert chk["work_bits_left_set"] == 0 and chk["inputs_restored"]
-            Qe = exact_Q(N, circ)
-            Qe[0] = Q[0]                       # k = 0: only the first column |0> -> |8> is fixed by V
+            Qe = exact_unitaries(N, Q)         # exact first columns, within delta of the gates
             delta = max(np.linalg.norm(Q[k] - Qe[k], 2) for k in range(N * N))
             emu_g, emu_e = Readout(N, rho, Q), Readout(N, rho, Qe)
             Ag, Ae = emu_g.amplitude(phi).real, emu_e.amplitude(phi).real
@@ -251,12 +248,6 @@ def part2():
             print(f"{N:>3} {rho:>4.0f} {F:>3} {delta:>9.2e} {6 * N * 2.0 ** -F:>9.2e} "
                   f"{abs(Ag - Ae):>13.2e} {abs(Ag - Ae) / (2 * t * delta * emu_g.sbar):>16.1e} "
                   f"{abs(Ag - ref['sFE']) / emu_g.sbar:>16.2e}", flush=True)
-    c4 = IsometryCircuit(n=2, F=16); Qg, _ = c4.simulate()
-    rc.ADDER = "cuccaro"
-    c4c = IsometryCircuit(n=2, F=16); Qc, _ = c4c.simulate()
-    rc.ADDER = "gidney"
-    print(f"   Gidney against Cuccaro adders at N = 4, F = 16: max |Q_gidney - Q_cuccaro| = "
-          f"{np.abs(Qg - Qc).max():.1e}")
 
 
 # ---- 3. amplitude estimation --------------------------------------------------------------

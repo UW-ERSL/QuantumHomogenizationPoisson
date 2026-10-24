@@ -1,6 +1,6 @@
 """makeTables.py -- every table of the paper, written to tables/ as LaTeX.
 
-    python makeTables.py                 all five tables (about 1 minute)
+    python makeTables.py                 all four tables (about 1 minute)
     python makeTables.py inverse         just that one
     python makeTables.py --list          names and destinations
 
@@ -27,7 +27,6 @@ import sys
 import numpy as np
 
 import cells
-from quantuminversionpoisson.isometry_circuit import IsometryCircuit
 from verify_square import prop4_check
 from verify_full_unitary import full_error
 from verify_inverse import inverse_case, residual, LOADS
@@ -77,37 +76,6 @@ def kappa_fmt(x: float) -> str:
 
 
 # ==========================================================================
-#  tab:uv-cost (App. A.2): one application of U_V at N = 1024, F = 45, by stage
-# ==========================================================================
-def tab_uv_cost() -> None:
-    N, eps_p = 1024, 1e-6
-    v = cells.inverse_resources("square", N, RHO, eps_p)
-    F, n = v["F"], int(np.log2(N))
-    circ = IsometryCircuit(n=n, F=F)
-    st = {x["stage"]: x for x in circ.stage_counts()}
-    tot = sum(x["toffoli"] for x in st.values())
-    work = sum(x["qubits"] for x in st.values())
-    cordic = st["cos_sin"]["toffoli"] + st["omega"]["toffoli"] + st["tau"]["toffoli"]
-    assert tot == v["toffoli_uv"] == 44510 and F == 45                       # "F = 45", "44,510"
-    assert cordic == 20 * F ** 2 + 48 * F == 42660 and tot - cordic == 1850  # Eq. (cordic-count)
-    assert round(100 * cordic / tot) == 96                                   # "96 percent"
-    assert work == 5674 and work + 2 * n + 4 == circ.resources()["wires"] == 5698
-    assert v["qubits"] == 5701 and round(100 * work / v["qubits"], 1) == 99.5   # App. A.2
-    assert v["rot_per_query"] == 2 * ((2 * F + 4) + 2 * n * (n - 1) + 2 * n) + 2 == 590
-    labels = [("1", "load $\\phi_1 \\pm \\phi_2$: adder and subtractor", "load"),
-              ("2", "cosines and sines: two rotation-mode runs", "cos_sin"),
-              ("3", "sum to product: $a$, $b$, $\\zeta$", "sum_to_product"),
-              ("4", "$\\omega$: vectoring run", "omega"),
-              ("4", "$\\sqrt{2/3}\\,K\\zeta$: constant product", "const_product"),
-              ("4", "$\\tau$: vectoring run", "tau"),
-              ("5", "zero-mode flag", "zero_flag")]
-    rows = [[a, b, intx(st[k]["toffoli"]), intx(st[k]["qubits"])] for a, b, k in labels]
-    write("uv_cost", "@{}llrr@{}", ["stage", "operation", "Toffoli", "qubits"], rows,
-          footer=["", "total", intx(tot), intx(work)])
-    print(f"       CORDIC {cordic:,} of {tot:,} Toffolis; work register {work:,} of {v['qubits']:,} qubits")
-
-
-# ==========================================================================
 #  tab:geometry (Sec. 5.1): extreme eigenvalues of Mtilde for the three cells
 # ==========================================================================
 def tab_geometry(N: int = 256, rhos=(10.0, 1e4)) -> None:
@@ -141,7 +109,12 @@ def tab_resources(N: int = 1024, eps_ps=(1e-3, 1e-6)) -> None:
                      sci(v["toffoli_total"], 2), intx(v["qubits"])])
         print(f"       eps_p={e:g}: d={v['d']} C={v['C']:.3f} F={v['F']} per query={v['toffoli_per_query']:,} "
               f"rotations={v['rot_per_query']} total={v['toffoli_total']:.3e} qubits={v['qubits']:,}")
-    write("resources", "rrrrrrrrr", ["$\\epsilon_p$", "$d$", "$C$", "$F$", "Toffoli/$\\mathcal{U}_V$",
+    v3, v6 = (cells.inverse_resources("square", N, RHO, e) for e in (1e-3, 1e-6))
+    assert (v6["d"], v6["F"], v6["toffoli_uv"], v6["toffoli_per_query"], v6["rot_per_query"],
+            v6["qubits"]) == (145, 45, 44462, 88926, 588, 5699)               # Secs. 3.8, 5.5
+    assert round(v6["toffoli_total"], -5) == 1.29e7                            # "1.3 x 10^7"
+    assert (v3["d"], v3["F"], v3["qubits"]) == (77, 34, 3576) and round(v3["toffoli_total"], -5) == 4.0e6
+    write("resources", "rrrrrrrrr", ["$\\epsilon_p$", "$d_t$", "$C$", "$F$", "Toffoli/$\\mathcal{U}_V$",
                                      "Toffoli/query", "rotations/query", "Toffoli", "qubits"], rows)
 
 
@@ -153,7 +126,7 @@ def tab_be_M() -> None:
     for N in (8, 16):
         for F in (24, 32):
             r = prop4_check(N, RHO, F)
-            _, delta, chk = full_error(int(np.log2(N)), F)
+            delta, chk = full_error(int(np.log2(N)), F)
             assert r["clean"] and chk["work_bits_left_set"] == 0
             assert r["err"] < 2 * delta, (N, F, r["err"], delta)    # "below 2 delta"
             assert abs(r["spec_min"] * RHO - 1) < 1e-12 and abs(r["spec_max"] - 1) < 1e-12
@@ -178,13 +151,12 @@ def tab_inverse() -> None:
         rows.append([f"${N}$", f"${r['d']}$"] + [sci(e[k]) for k in LOADS])
     assert dev[32] < 1e-8 and dev[24] < 2e-7, dev
     write("inverse", "rrrrrr",
-          ["$N$", "$d$", "smooth", "random", "cell", "worst"], rows)
+          ["$N$", "$d_t$", "smooth", "random", "cell", "worst"], rows)
     print(f"       residual of q_t = {res:.3e}; circuit deviation F=24: {dev[24]:.1e}, "
           f"F=32: {dev[32]:.1e}")
 
 
 TABLES = {
-    "uv_cost":   (tab_uv_cost,   "U_V by stage of the angle oracle (tab:uv-cost, App. A.2)"),
     "geometry":  (tab_geometry,  "extreme eigenvalues of Mtilde, three cells (tab:geometry, Sec. 5.1)"),
     "be_M":      (tab_be_M,      "encoding of Mtilde from the gate-level circuit (tab:be-M, Sec. 5.3)"),
     "inverse":   (tab_inverse,   "the inverse on four sources (tab:inverse, Sec. 5.4)"),
