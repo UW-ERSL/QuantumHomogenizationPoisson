@@ -1,4 +1,4 @@
-# QuantumHomogenizationPoisson -- reproduces every verification reported in the paper.
+# QuantumInversionPoisson -- reproduces every verification reported in the paper.
 #   python -m pip install -r requirements.txt
 numpy>=1.26
 scipy>=1.11

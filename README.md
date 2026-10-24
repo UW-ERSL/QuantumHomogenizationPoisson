@@ -1,4 +1,4 @@
-# QuantumHomogenizationPoisson
+# QuantumInversionPoisson
 
 Code for the paper *A Preconditioned Quantum Linear Solver for Periodic
 Two-Phase Heat Conduction with Mesh-Independent Condition Number*
@@ -31,8 +31,8 @@ blocks of the periodic Poisson isometry* (package
 installed by `requirements.txt`),
 and verifies the encoding of `M` and the inverse against the finite element
 solution, and runs the numerical experiments of the paper on three dyadic
-cells (square, cross, laminate) up to N = 1024. The Python package keeps its
-original name, `quantuminversionpoisson`.
+cells (square, cross, laminate) up to N = 1024. The Python package is
+`quantuminversionpoisson`.
 
 The baseline condition number of Sec. 5.2 (Fig. mesh a) uses the
 subnormalization `alpha = 16/3` of the encoding of `K^chi / sigma_max` in the
@@ -43,8 +43,8 @@ cross-checks it.
 
 ## Install
 
-    git clone https://github.com/UW-ERSL/QuantumHomogenizationPoisson
-    cd QuantumHomogenizationPoisson
+    git clone https://github.com/UW-ERSL/QuantumInversionPoisson
+    cd QuantumInversionPoisson
     pip install -r requirements.txt
 
 The package requires numpy, scipy, and `multiplexed_state_preparation`; matplotlib is
