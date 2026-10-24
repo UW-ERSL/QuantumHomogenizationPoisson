@@ -27,7 +27,7 @@ the readout scripts are kept in this repository for that paper (see
 This repository builds `U_V` at gate level, with the wavenumber-controlled
 stage of the companion paper *Multiplexed state preparation of the Fourier
 blocks of the periodic Poisson isometry* (package
-[`binary_to_amplitude`](https://github.com/UW-ERSL/BinaryToAmplitude),
+[`multiplexed_state_preparation`](https://github.com/UW-ERSL/MultiplexedStatePreparation),
 installed by `requirements.txt`),
 and verifies the encoding of `M` and the inverse against the finite element
 solution, and runs the numerical experiments of the paper on three dyadic
@@ -47,7 +47,7 @@ cross-checks it.
     cd QuantumHomogenizationPoisson
     pip install -r requirements.txt
 
-The package requires numpy, scipy, and `binary_to_amplitude`; matplotlib is
+The package requires numpy, scipy, and `multiplexed_state_preparation`; matplotlib is
 needed for `makeFigures.py`; pyblockencode (optional, not in `requirements.txt`)
 for the cross-check of `alpha` in `verify_square.py`; Qiskit, Qiskit Aer, and pyqsp
 for the companion-paper script `verify_qiskit_qsvt.py` and the circuit
@@ -120,8 +120,8 @@ Table 1 of the paper (symbols) is not generated. Files in
 | File | Contents |
 |---|---|
 | `quantuminversionpoisson/fourier_symbol.py` | Closed-form scalar symbol of `K` (Eq. symbol-entries), functions of `K` by FFT, `K` assembled element by element |
-| `quantuminversionpoisson/revcirc.py` | X/CX/CCX reversible fixed-point arithmetic and a bit-packed simulator; no longer used by `U_V` (its arithmetic is that of `binary_to_amplitude`), kept for `verify_readout.py` |
-| `quantuminversionpoisson/isometry_circuit.py` | `Vhat(k)` in closed form, `V` assembled element by element, the fixed unitary `T` of `Vhat(k) = e^{i(phi1+phi2)} T c(k)/||c(k)||`, and the gate-level circuit `U_V` (Prop. gate): `binary_to_amplitude.poisson_isometry` for `c(k)/||c(k)||`, `T`, the phase, and the zero-mode flag |
+| `quantuminversionpoisson/revcirc.py` | X/CX/CCX reversible fixed-point arithmetic and a bit-packed simulator; no longer used by `U_V` (its arithmetic is that of `multiplexed_state_preparation`), kept for `verify_readout.py` |
+| `quantuminversionpoisson/isometry_circuit.py` | `Vhat(k)` in closed form, `V` assembled element by element, the fixed unitary `T` of `Vhat(k) = e^{i(phi1+phi2)} T c(k)/||c(k)||`, and the gate-level circuit `U_V` (Prop. gate): `multiplexed_state_preparation.poisson_isometry` for `c(k)/||c(k)||`, `T`, the phase, and the zero-mode flag |
 | `verify_isometry.py` | Factorization, circuit, and scaling checks |
 | `verify_full_unitary.py` | (Sec. 3.8) Encoding error `delta` of the wavenumber-controlled stage (42 cases) and the exact unitary of Prop. gate (iii) |
 | `verify_qsvt_degree.py` | Degree and sup norm of the odd QSVT inverse polynomial against the bounds of Sec. 3.7 (independent of the PDE) |

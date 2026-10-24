@@ -9,7 +9,7 @@
    from gates) against V = W^{1/2} G (K^+)^{1/2} assembled element by element.
 3. Error and Toffoli count against N and bit width F.
 The arithmetic of the wavenumber-controlled stage is that of the companion
-paper (package binary_to_amplitude), whose repository checks it in detail.
+paper (package multiplexed_state_preparation), whose repository checks it in detail.
 """
 import numpy as np
 

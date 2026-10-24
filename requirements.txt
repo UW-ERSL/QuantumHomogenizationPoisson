@@ -3,7 +3,7 @@
 numpy>=1.26
 scipy>=1.11
 # the wavenumber-controlled stage of U_V (companion paper)
-binary_to_amplitude @ git+https://github.com/UW-ERSL/BinaryToAmplitude
+multiplexed_state_preparation @ git+https://github.com/UW-ERSL/MultiplexedStatePreparation
 # makeFigures.py
 matplotlib>=3.7
 # Optional: companion-paper scripts (verify_qiskit_qsvt.py)

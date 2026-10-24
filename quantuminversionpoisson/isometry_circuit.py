@@ -10,7 +10,7 @@ phi_j = pi k_j / N (Sec. 3.8),
 
 with T the fixed unitary of T_matrix. IsometryCircuit prepares c(k)/||c(k)||
 for all k at once with the multiplexed CORDIC circuit of the companion paper
-(binary_to_amplitude.poisson_isometry), without tabulating anything, and
+(multiplexed_state_preparation.poisson_isometry), without tabulating anything, and
 checks it. Q_exact, exact_angles, and canonical are an exact two-angle
 unitary with the same first column, used by the companion-paper readout
 scripts.
@@ -169,7 +169,7 @@ class IsometryCircuit:
 
     Q~(k) = e^{i(phi1+phi2)} T Qc(k) X_b3^[k = 0], where Qc is the multiplexed
     preparation of c(k)/||c(k)||, c = (a, b, zeta/sqrt3, zeta/sqrt3), of the
-    companion paper (binary_to_amplitude.poisson_isometry) on the local qubits
+    companion paper (multiplexed_state_preparation.poisson_isometry) on the local qubits
     (b1, b0) = (t_0, t_1), T is the fixed unitary of T_matrix, and X_b3 moves
     k = 0 to the unused states 8..15. The zero-mode flag is an AND of the 2n
     negated wavenumber bits (2n - 1 Toffoli, uncomputed before the rotation
@@ -178,7 +178,7 @@ class IsometryCircuit:
     its decision bits encode."""
 
     def __init__(self, n, F=20):
-        from binary_to_amplitude import poisson_isometry
+        from multiplexed_state_preparation import poisson_isometry
         if F < n:
             raise ValueError("need F >= n")
         self.n, self.N, self.F, self.I = n, 2 ** n, F, F
@@ -190,7 +190,7 @@ class IsometryCircuit:
     # -- simulation -----------------------------------------------------------
     def simulate(self):
         """Q (N^2, 16, 16), the phase included, and a dict of checks."""
-        from binary_to_amplitude.revcirc import BitSim
+        from multiplexed_state_preparation.revcirc import BitSim
         sv, t, N, n = self.sv, self.sv.tree, self.N, self.n
         kk = np.arange(N * N)
         k1, k2 = kk // N, kk % N
