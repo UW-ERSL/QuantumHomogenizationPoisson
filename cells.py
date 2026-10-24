@@ -1,4 +1,4 @@
-"""cells.py -- the three test cells of Sec. 4, applied matrix-free, shared by
+"""cells.py -- the three test cells of Sec. 5, applied matrix-free, shared by
 makeTables.py and makeFigures.py (not a script).
 
     square     centered square inclusion of side N/2, v_f = 1/4 (the worked example)
@@ -10,7 +10,7 @@ Each cell has a material oracle R_chi of O(1) gates, checked on every element.
 Every operator is applied matrix-free (FFT for functions of K, sparse
 A = W^{1/2} G), so the cells reach N = 1024 (N_dof ~ 10^6). The module also
 holds the inverse of Sec. 3.7 (Clenshaw recurrence on q_t), the choice of F
-of Sec. 3.8, and the resource counts of App. A.2 and Sec. 4.5.
+of Sec. 3.8, and the resource counts of App. A.2 and Sec. 5.5.
 """
 import numpy as np
 import scipy.sparse as sp

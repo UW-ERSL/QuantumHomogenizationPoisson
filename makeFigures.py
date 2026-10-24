@@ -5,8 +5,8 @@
     python makeFigures.py --list       names and destinations
 
 figs/spectrum.pdf       (fig:spectrum, Sec. 2.2)   eigenvalues of K^chi and of M, square, rho = 10
-figs/cells.pdf          (fig:cells, Sec. 4.1)      the three test cells at N = 16
-figs/mesh.pdf           (fig:mesh, Sec. 4.2)       mesh refinement, N = 16 ... 1024, three cells
+figs/cells.pdf          (fig:cells, Sec. 5.1)      the three test cells at N = 16
+figs/mesh.pdf           (fig:mesh, Sec. 5.2)       mesh refinement, N = 16 ... 1024, three cells
 figs/isometry_cost.pdf  (fig:isometry-cost, App. A) delta 2^F / N for the 42 cases
 
 Not in the paper, drawn only when named: `circuits` (the readout and QSVT
@@ -84,7 +84,7 @@ def draw_cells():
 
 def draw_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=RHO, eps_p=1e-6):
     """figs/mesh.pdf (fig:mesh): kappa of K^chi and of Mtilde, the inverse error at fixed d, and the
-    Toffoli count of U_V, for the three cells, N = 16 ... 1024; asserts every number Sec. 4.2 quotes."""
+    Toffoli count of U_V, for the three cells, N = 16 ... 1024; asserts every number Sec. 5.2 quotes."""
     import time
     rows = []
     for g in cells.GEOMETRIES:
@@ -103,7 +103,7 @@ def draw_mesh(Ns=(16, 32, 64, 128, 256, 512, 1024), rho=RHO, eps_p=1e-6):
             print(f"mesh {g:8s} N={N:5d} kappa(M)={r['kappa_M']:.10f} lmax={hi:.12f} "
                   f"kappa(Kc)={r['kappa_Kc']:.4g} kappa_P={r['kappa_P']:.4g} inverse err={err:.3e} d={d} "
                   f"F={F} Toffoli/U_V={r['toffoli_uv']:,} [{r['seconds']:.0f} s]", flush=True)
-    # ---- assertions: every claim of Sec. 4.2
+    # ---- assertions: every claim of Sec. 5.2
     _, d0, _, _ = cells.inverse_plan(rho, eps_p)
     for r in rows:
         assert abs(r["kappa_M"] - rho) < 1e-6 * rho and abs(r["lam_max"] - 1) < 1e-8, r   # kappa = rho
@@ -265,8 +265,8 @@ def draw_circuits():
 
 FIGURES = {
     "spectrum":  (draw_spectrum,  "eigenvalues of K^chi and of M (fig:spectrum, Sec. 2.2)"),
-    "cells":     (draw_cells,     "the three test cells (fig:cells, Sec. 4.1)"),
-    "mesh":      (draw_mesh,      "mesh refinement, N = 16 ... 1024 (fig:mesh, Sec. 4.2)"),
+    "cells":     (draw_cells,     "the three test cells (fig:cells, Sec. 5.1)"),
+    "mesh":      (draw_mesh,      "mesh refinement, N = 16 ... 1024 (fig:mesh, Sec. 5.2)"),
     "isometry":  (draw_isometry,  "encoding error of U_V (fig:isometry-cost, App. A)"),
 }
 EXTRA = {

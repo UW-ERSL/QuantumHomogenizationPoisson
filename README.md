@@ -30,7 +30,7 @@ solution, and runs the numerical experiments of the paper on three dyadic
 cells (square, cross, laminate) up to N = 1024. The Python package keeps its
 original name, `quantuminversionpoisson`.
 
-The baseline condition number of Sec. 4.2 (Fig. mesh a) uses the
+The baseline condition number of Sec. 5.2 (Fig. mesh a) uses the
 subnormalization `alpha = 16/3` of the encoding of `K^chi / sigma_max` in the
 companion package [`pyblockencode`](https://github.com/UW-ERSL/PyBlockEncode)
 (`POISSON2D_2PHASE`). The value is set in `verify_square.py` and
@@ -55,6 +55,26 @@ in a virtual environment:
     pip install -U setuptools wheel && pip install -r requirements.txt
 
 ## Quick start
+
+The two listings of Sec. 4 of the paper. The first builds the square cell at
+N = 256 and rho = 10, applies the inverse to the cell-problem source, and
+computes the resources of the inverse at N = 1024; replace `"square"` by
+`"cross"` or `"laminate"` for the other two cells.
+
+```python
+import cells
+
+cell = cells.Cell("square", N=256, rho=10.0)       # 65,536 unknowns
+lo, hi = cells.extreme_eigs(cell)                  # extreme eigenvalues of Mtilde
+err, d = cells.inverse_error(cell, eps_p=1e-6)     # q_t(Mtilde), matrix-free
+print(hi / lo, d, err)                             # 10.0, 145, 5.03e-07
+
+v = cells.inverse_resources("square", N=1024, rho=10.0, eps_p=1e-6)
+print(v["F"], v["toffoli_per_query"], v["qubits"]) # 45, 89022, 5701
+```
+
+The second checks the gate-level circuit `U_V` at N = 16 and F = 24 against
+`Vhat(k)` at every wavenumber.
 
 ```python
 from quantuminversionpoisson import IsometryCircuit, vhat_exact
@@ -81,9 +101,9 @@ print(checks, err, circ.resources()["toffoli_total"])
     python makeFigures.py mesh         # one figure; --list for the names
 
 `tables/` and `figs/` are generated, not committed. The paper uses five tables,
-`uv_cost` (tab:uv-cost, App. A.2), `geometry` (Sec. 4.1), `be_M` (Sec. 4.3),
-`inverse` (Sec. 4.4) and `resources` (Sec. 4.5), and four figures,
-`spectrum` (Sec. 2.2), `cells` (Sec. 4.1), `mesh` (Sec. 4.2) and
+`uv_cost` (tab:uv-cost, App. A.2), `geometry` (Sec. 5.1), `be_M` (Sec. 5.3),
+`inverse` (Sec. 5.4) and `resources` (Sec. 5.5), and four figures,
+`spectrum` (Sec. 2.2), `cells` (Sec. 5.1), `mesh` (Sec. 5.2) and
 `isometry_cost` (App. A). Both scripts assert every number the text quotes
 about them before writing. `python makeFigures.py circuits qsvt_poly angles`
 draws figures the paper does not use: the readout and QSVT circuit figures
@@ -112,7 +132,7 @@ Table 1 of the paper (symbols) is not generated. Files in
 | `verify_lsq_readout.py` | (companion paper) The least-squares readout `sigma^H/sigma_max = g^T (I - Pi) g` (even polynomial `f = (r_t + e_t)/(1 + e_t)`, one `U_V` per query): dense identity check, gate-level `U_V` emulation with pyqsp phases to d = 640, amplitude estimation from its exact distribution, shifted polynomial `A >= 0` |
 | `cells.py` | Module, not a script: the three test cells (square, cross, laminate) with operators applied matrix-free up to N = 1024, the `R_chi` gate networks checked on every element, the inverse by a Clenshaw recurrence on the Chebyshev interpolant of `q_t`, the choice of F, and the resource counts |
 | `makeTables.py` | The five tables of the paper: `uv_cost` (from `IsometryCircuit.stage_counts()`), `geometry`, `be_M`, `inverse` (N <= 64, dense checks), `resources`; every number the text quotes about them asserted |
-| `makeFigures.py` | The four figures of the paper: `spectrum`, `cells`, `mesh` (N = 16 ... 1024, asserting every number of Sec. 4.2), `isometry_cost` (`delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.43%); on request, the figures the paper does not use |
+| `makeFigures.py` | The four figures of the paper: `spectrum`, `cells`, `mesh` (N = 16 ... 1024, asserting every number of Sec. 5.2), `isometry_cost` (`delta <= 6 N 2^-F` in 42 cases, largest 5.73; Toffoli fit within 0.43%); on request, the figures the paper does not use |
 | `circuit_figures.py` | The readout and QSVT circuit figures of the companion paper, called by `makeFigures.py circuits` |
 
 The paper and the scripts write the subnormalization of the QSVT polynomial,
@@ -160,7 +180,7 @@ encoding-error bound with its proof, is in
 - The exported 594-qubit circuit in Qiskit Aer (MPS) for every `k` at N = 4,
   agreeing to 6.5e-10.
 
-**Preconditioned operator and its inverse (Secs. 3.6-3.7, 4.3-4.4).**
+**Preconditioned operator and its inverse (Secs. 3.6-3.7, 5.3-5.4).**
 
 - Square inclusion, `v_f = 1/4`, `N` = 8 ... 64, `rho` = 1.5 ... 1e4:
   `kappa(Mtilde) = rho` exactly (the bound is attained), while the condition
@@ -179,7 +199,7 @@ encoding-error bound with its proof, is in
   attains the residual 8.69e-7 of the polynomial; the gate-level block changes
   the errors by at most 1.2e-7 (F = 24) and 2.8e-9 (F = 32).
 
-## Numerical experiments (Sec. 4)
+## Numerical experiments (Sec. 5)
 
 All with operators applied matrix-free (FFT for functions of `K`, sparse
 `W^{1/2} G`, Clenshaw recurrence for `q_t`), N up to 1024 (N_dof ~ 1.05e6),
@@ -187,18 +207,18 @@ on the square (v_f = 1/4), the cross (two bands of width N/8, v_f = 15/64,
 connected) and the laminate (chi = 1 for x < 1/2). `R_chi` costs 2, 9 and 0
 Toffolis.
 
-- **Cells (N = 256, Sec. 4.1):** `rho lambda_min(Mtilde)`, `lambda_max` and
+- **Cells (N = 256, Sec. 5.1):** `rho lambda_min(Mtilde)`, `lambda_max` and
   `kappa(Mtilde) / rho` equal 1 to six digits for every cell at rho = 10 and
   1e4.
-- **Mesh (rho = 10, N = 16 ... 1024, Sec. 4.2):** `kappa(Mtilde) = 10` to ten
+- **Mesh (rho = 10, N = 16 ... 1024, Sec. 5.2):** `kappa(Mtilde) = 10` to ten
   digits; `kappa(K^chi)` seen by QSVT grows by 4.00 per doubling to 1.2e6;
   the inverse at the fixed degree d = 145 (eps_p = 1e-6) has relative
   energy-norm error 4.1e-7 to 8.6e-7 for the cell-problem source of each cell;
   with F from `F = ceil(log2(12 N d C / eps_p))`, F = 39 ... 45 and the
   Toffolis per `U_V` grow from 33,722 to 44,510.
-- **Gate-level encoding and the inverse (N <= 64, Secs. 4.3-4.4):** see the
+- **Gate-level encoding and the inverse (N <= 64, Secs. 5.3-5.4):** see the
   checks above (`makeTables.py be_M inverse`).
-- **Resources (N = 1024, rho = 10, Sec. 4.5):** per query to the encoding of
+- **Resources (N = 1024, rho = 10, Sec. 5.5):** per query to the encoding of
   `Mtilde` (two `U_V`, one `R_chi`): 89,022 Toffolis and 590 rotations at
   eps_p = 1e-6 (d = 145, F = 45), 51,926 and 546 at eps_p = 1e-3 (d = 77,
   F = 34); the inverse costs 1.3e7 and 4.0e6 Toffolis on 5,701 and 3,578

@@ -108,7 +108,7 @@ def tab_uv_cost() -> None:
 
 
 # ==========================================================================
-#  tab:geometry (Sec. 4.1): extreme eigenvalues of Mtilde for the three cells
+#  tab:geometry (Sec. 5.1): extreme eigenvalues of Mtilde for the three cells
 # ==========================================================================
 def tab_geometry(N: int = 256, rhos=(10.0, 1e4)) -> None:
     rows = []
@@ -130,7 +130,7 @@ def tab_geometry(N: int = 256, rhos=(10.0, 1e4)) -> None:
 
 
 # ==========================================================================
-#  tab:resources (Sec. 4.5): the inverse at N = 1024
+#  tab:resources (Sec. 5.5): the inverse at N = 1024
 # ==========================================================================
 def tab_resources(N: int = 1024, eps_ps=(1e-3, 1e-6)) -> None:
     rows = []
@@ -185,10 +185,10 @@ def tab_inverse() -> None:
 
 TABLES = {
     "uv_cost":   (tab_uv_cost,   "U_V by stage of the angle oracle (tab:uv-cost, App. A.2)"),
-    "geometry":  (tab_geometry,  "extreme eigenvalues of Mtilde, three cells (tab:geometry, Sec. 4.1)"),
-    "be_M":      (tab_be_M,      "encoding of Mtilde from the gate-level circuit (tab:be-M, Sec. 4.3)"),
-    "inverse":   (tab_inverse,   "the inverse on four sources (tab:inverse, Sec. 4.4)"),
-    "resources": (tab_resources, "logical resources of the inverse (tab:resources, Sec. 4.5)"),
+    "geometry":  (tab_geometry,  "extreme eigenvalues of Mtilde, three cells (tab:geometry, Sec. 5.1)"),
+    "be_M":      (tab_be_M,      "encoding of Mtilde from the gate-level circuit (tab:be-M, Sec. 5.3)"),
+    "inverse":   (tab_inverse,   "the inverse on four sources (tab:inverse, Sec. 5.4)"),
+    "resources": (tab_resources, "logical resources of the inverse (tab:resources, Sec. 5.5)"),
 }
 
 
